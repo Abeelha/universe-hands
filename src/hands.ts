@@ -4,20 +4,26 @@ const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
 const PALM_LANDMARKS = [0, 5, 9, 13, 17]
+const FINGERTIP_LANDMARKS = [8, 12, 16, 20]
 
 export type HandReading = {
-  present: boolean
   palm: { x: number; y: number }
   mass: number
+  tilt: number
+  fist: boolean
 }
 
-export type HandReader = (timestampMs: number) => HandReading
-
-const ABSENT: HandReading = { present: false, palm: { x: 0.5, y: 0.5 }, mass: 0 }
+export type HandReader = (timestampMs: number) => HandReading[]
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)))
   return t * t * (3 - 2 * t)
+}
+
+function handScale(landmarks: NormalizedLandmark[]): number {
+  const wrist = landmarks[0]
+  const middleBase = landmarks[9]
+  return Math.max(Math.hypot(wrist.x - middleBase.x, wrist.y - middleBase.y), 1e-5)
 }
 
 function palmCenter(landmarks: NormalizedLandmark[]): { x: number; y: number } {
@@ -31,15 +37,39 @@ function palmCenter(landmarks: NormalizedLandmark[]): { x: number; y: number } {
   return { x: 1 - x / PALM_LANDMARKS.length, y: 1 - y / PALM_LANDMARKS.length }
 }
 
-function pinchMass(landmarks: NormalizedLandmark[]): number {
+function pinchMass(landmarks: NormalizedLandmark[], scale: number): number {
   const thumbTip = landmarks[4]
   const indexTip = landmarks[8]
+  const spread = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y) / scale
+  return 1 - smoothstep(0.15, 0.85, spread)
+}
+
+function rollTilt(landmarks: NormalizedLandmark[]): number {
   const wrist = landmarks[0]
   const middleBase = landmarks[9]
-  const pinchSpan = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y)
-  const handScale = Math.hypot(wrist.x - middleBase.x, wrist.y - middleBase.y)
-  const spread = pinchSpan / Math.max(handScale, 1e-5)
-  return 1 - smoothstep(0.15, 0.85, spread)
+  const angle = Math.atan2(wrist.y - middleBase.y, wrist.x - middleBase.x)
+  const tilt = angle - Math.PI / 2
+  return tilt < -Math.PI ? tilt + Math.PI * 2 : tilt
+}
+
+function isFist(landmarks: NormalizedLandmark[], scale: number): boolean {
+  const wrist = landmarks[0]
+  let total = 0
+  for (const index of FINGERTIP_LANDMARKS) {
+    const tip = landmarks[index]
+    total += Math.hypot(tip.x - wrist.x, tip.y - wrist.y)
+  }
+  return total / FINGERTIP_LANDMARKS.length / scale < 1.2
+}
+
+function toReading(landmarks: NormalizedLandmark[]): HandReading {
+  const scale = handScale(landmarks)
+  return {
+    palm: palmCenter(landmarks),
+    mass: pinchMass(landmarks, scale),
+    tilt: rollTilt(landmarks),
+    fist: isFist(landmarks, scale),
+  }
 }
 
 export async function createHandTracker(video: HTMLVideoElement): Promise<HandReader> {
@@ -47,18 +77,15 @@ export async function createHandTracker(video: HTMLVideoElement): Promise<HandRe
   const landmarker = await HandLandmarker.createFromOptions(fileset, {
     baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
     runningMode: "VIDEO",
-    numHands: 1,
+    numHands: 2,
   })
   let lastTimestamp = -1
-  let lastReading = ABSENT
+  let lastReadings: HandReading[] = []
   return (timestampMs) => {
-    if (video.readyState < 2 || timestampMs <= lastTimestamp) return lastReading
+    if (video.readyState < 2 || timestampMs <= lastTimestamp) return lastReadings
     lastTimestamp = timestampMs
     const result = landmarker.detectForVideo(video, timestampMs)
-    const landmarks = result.landmarks.length > 0 ? result.landmarks[0] : undefined
-    lastReading = landmarks
-      ? { present: true, palm: palmCenter(landmarks), mass: pinchMass(landmarks) }
-      : ABSENT
-    return lastReading
+    lastReadings = result.landmarks.map(toReading)
+    return lastReadings
   }
 }

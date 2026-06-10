@@ -1,11 +1,18 @@
 uniform sampler2D uVideo;
-uniform vec2 uHole;
-uniform float uMass;
+uniform vec2 uHoles[2];
+uniform float uMasses[2];
+uniform float uTilts[2];
+uniform vec2 uBurstCenter;
+uniform float uBurstAge;
+uniform float uBurstStrength;
 uniform float uTime;
 uniform float uAspect;
 uniform float uVideoAspect;
 
 varying vec2 vUv;
+
+const float SCHWARZSCHILD_SCALE = 0.09;
+const float BURST_DURATION = 1.2;
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -82,18 +89,42 @@ float starField(vec2 p) {
 
 void main() {
   vec2 uv = vUv;
-  vec2 centered = vec2((uv.x - uHole.x) * uAspect, uv.y - uHole.y);
-  float r = length(centered);
-  float rs = uMass * 0.09;
-  float presence = smoothstep(0.002, 0.012, rs);
 
-  vec2 outward = r > 1e-5 ? centered / r : vec2(0.0, 1.0);
-  float reach = 1.0 - smoothstep(rs * 3.0, rs * 8.0 + 1e-5, r);
-  float deflection = rs * rs / max(r, 1e-4) * 2.3 * reach;
-  vec2 shift = outward * deflection;
-  vec2 lensedUv = uv - vec2(shift.x / uAspect, shift.y);
+  vec2 totalShift = vec2(0.0);
+  vec3 glow = vec3(0.0);
+  vec2 starDrift = vec2(0.0);
+  float horizon = 1.0;
 
-  vec2 chroma = vec2(outward.x / uAspect, outward.y) * deflection * 0.08;
+  for (int i = 0; i < 2; i++) {
+    vec2 centered = vec2((uv.x - uHoles[i].x) * uAspect, uv.y - uHoles[i].y);
+    float r = length(centered);
+    float rs = uMasses[i] * SCHWARZSCHILD_SCALE;
+    float presence = smoothstep(0.004, 0.02, rs);
+    vec2 outward = r > 1e-5 ? centered / r : vec2(0.0, 1.0);
+    float reach = 1.0 - smoothstep(rs * 3.0, rs * 8.0 + 1e-5, r);
+    float deflection = rs * rs / max(r, 1e-4) * 2.3 * reach;
+    totalShift += vec2(outward.x * deflection / uAspect, outward.y * deflection);
+    float ringT = (r - rs * 1.5) / max(rs * 0.16, 1e-4);
+    glow += vec3(1.0, 0.86, 0.58) * exp(-ringT * ringT) * presence * 1.1;
+    horizon *= smoothstep(rs, rs * 1.02 + 1e-5, r);
+    starDrift += outward * uMasses[i];
+  }
+
+  vec2 burstCentered = vec2((uv.x - uBurstCenter.x) * uAspect, uv.y - uBurstCenter.y);
+  float burstR = length(burstCentered);
+  if (uBurstAge >= 0.0 && uBurstAge < BURST_DURATION && uBurstStrength > 0.001) {
+    float progress = uBurstAge / BURST_DURATION;
+    float fade = uBurstStrength * (1.0 - progress);
+    float waveT = (burstR - progress * 0.85) / 0.05;
+    float wave = exp(-waveT * waveT);
+    vec2 burstDir = burstR > 1e-5 ? burstCentered / burstR : vec2(0.0, 1.0);
+    totalShift += vec2(burstDir.x / uAspect, burstDir.y) * wave * 0.03 * fade;
+    glow += vec3(1.0, 0.8, 0.5) * wave * fade * 1.3;
+    glow += vec3(1.0, 0.95, 0.85) * exp(-uBurstAge * 7.0) * exp(-burstR * burstR * 18.0) * uBurstStrength * 1.8;
+  }
+
+  vec2 lensedUv = uv - totalShift;
+  vec2 chroma = totalShift * 0.08;
   vec3 videoColor;
   videoColor.r = sampleVideo(lensedUv - chroma).r;
   videoColor.g = sampleVideo(lensedUv).g;
@@ -104,22 +135,22 @@ void main() {
   vec2 vignettePos = (uv - 0.5) * vec2(uAspect, 1.0);
   graded *= 1.0 - 0.45 * smoothstep(0.35, 1.05, length(vignettePos));
 
-  vec2 starCoord = (vec2(uv.x * uAspect, uv.y) + outward * uTime * 0.02 * uMass) * 55.0;
+  vec2 starCoord = (vec2(uv.x * uAspect, uv.y) + starDrift * uTime * 0.02) * 55.0;
   float stars = starField(starCoord) * (1.0 - smoothstep(0.05, 0.4, luma)) * 0.6;
 
-  vec2 lensedCentered = vec2((lensedUv.x - uHole.x) * uAspect, lensedUv.y - uHole.y);
-  vec3 disk = accretionDisk(lensedCentered, rs) * presence;
+  vec3 disk = vec3(0.0);
+  for (int i = 0; i < 2; i++) {
+    float rs = uMasses[i] * SCHWARZSCHILD_SCALE;
+    float presence = smoothstep(0.004, 0.02, rs);
+    vec2 lensedCentered = vec2((lensedUv.x - uHoles[i].x) * uAspect, lensedUv.y - uHoles[i].y);
+    float rollCos = cos(uTilts[i]);
+    float rollSin = sin(uTilts[i]);
+    vec2 diskPlane = mat2(rollCos, -rollSin, rollSin, rollCos) * lensedCentered;
+    disk += accretionDisk(diskPlane, rs) * presence;
+  }
 
-  float ringRadius = rs * 1.5;
-  float ringWidth = max(rs * 0.16, 1e-4);
-  float ringT = (r - ringRadius) / ringWidth;
-  float ring = exp(-ringT * ringT) * presence;
-  vec3 ringGlow = vec3(1.0, 0.86, 0.58) * ring * 1.3;
-
-  float horizon = smoothstep(rs, rs * 1.02 + 1e-5, r);
-
-  vec3 emissive = disk + ringGlow;
-  emissive /= 1.0 + 0.3 * emissive;
+  vec3 emissive = disk + glow;
+  emissive /= 1.0 + 0.45 * emissive;
 
   vec3 color = graded + vec3(stars) + emissive;
   color *= horizon;

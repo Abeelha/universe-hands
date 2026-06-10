@@ -13,8 +13,11 @@ void main() {
 }
 `
 
+export type HoleState = { x: number; y: number; mass: number; tilt: number }
+export type BurstState = { x: number; y: number; age: number; strength: number }
+
 export type BlackholeView = {
-  update: (hole: { x: number; y: number }, mass: number, timeSeconds: number) => void
+  update: (holes: readonly HoleState[], burst: BurstState, timeSeconds: number) => void
   render: () => void
   resize: () => void
 }
@@ -32,8 +35,12 @@ export function createBlackholeView(canvas: HTMLCanvasElement, video: HTMLVideoE
 
   const uniforms = {
     uVideo: { value: videoTexture },
-    uHole: { value: new THREE.Vector2(0.5, 0.5) },
-    uMass: { value: 0 },
+    uHoles: { value: [new THREE.Vector2(0.5, 0.5), new THREE.Vector2(0.5, 0.5)] },
+    uMasses: { value: [0, 0] },
+    uTilts: { value: [0, 0] },
+    uBurstCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    uBurstAge: { value: -1 },
+    uBurstStrength: { value: 0 },
     uTime: { value: 0 },
     uAspect: { value: 1 },
     uVideoAspect: { value: video.videoWidth / Math.max(video.videoHeight, 1) },
@@ -53,7 +60,7 @@ export function createBlackholeView(canvas: HTMLCanvasElement, video: HTMLVideoE
   const composer = new EffectComposer(renderer)
   composer.addPass(new RenderPass(scene, camera))
   composer.addPass(
-    new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.6, 0.9),
+    new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.55, 1.0),
   )
   composer.addPass(new OutputPass())
 
@@ -67,9 +74,17 @@ export function createBlackholeView(canvas: HTMLCanvasElement, video: HTMLVideoE
   resize()
 
   return {
-    update: (hole, mass, timeSeconds) => {
-      uniforms.uHole.value.set(hole.x, hole.y)
-      uniforms.uMass.value = mass
+    update: (holes, burst, timeSeconds) => {
+      for (let index = 0; index < 2; index++) {
+        const hole = holes[index]
+        if (!hole) continue
+        uniforms.uHoles.value[index].set(hole.x, hole.y)
+        uniforms.uMasses.value[index] = hole.mass
+        uniforms.uTilts.value[index] = hole.tilt
+      }
+      uniforms.uBurstCenter.value.set(burst.x, burst.y)
+      uniforms.uBurstAge.value = burst.age
+      uniforms.uBurstStrength.value = burst.strength
       uniforms.uTime.value = timeSeconds
     },
     render: () => composer.render(),
