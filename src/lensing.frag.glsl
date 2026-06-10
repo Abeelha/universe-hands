@@ -1,12 +1,12 @@
 uniform sampler2D uVideo;
-uniform vec2 uHoles[2];
-uniform float uMasses[2];
-uniform float uTilts[2];
-uniform float uDiskGains[2];
-uniform float uLensPowers[2];
-uniform float uSpectrals[2];
-uniform float uJets[2];
-uniform vec2 uJetDirs[2];
+uniform vec2 uHole;
+uniform float uMass;
+uniform float uTilt;
+uniform float uDiskGain;
+uniform float uLensPower;
+uniform float uSpectral;
+uniform float uJet;
+uniform vec2 uJetDir;
 uniform float uTime;
 uniform float uAspect;
 uniform float uVideoAspect;
@@ -60,7 +60,7 @@ vec3 diskColor(float heat, float spectral) {
   return mix(warm, cool, spectral);
 }
 
-vec3 accretionDisk(vec2 plane2d, float rs, float gain, float spectral) {
+vec3 accretionDisk(vec2 plane2d, float rs) {
   if (rs < 1e-4) return vec3(0.0);
   vec2 plane = vec2(plane2d.x, plane2d.y / 0.35);
   float radius = length(plane);
@@ -77,8 +77,8 @@ vec3 accretionDisk(vec2 plane2d, float rs, float gain, float spectral) {
   float heat = 1.0 - smoothstep(inner, outer, radius);
   float beaming = 1.0 + 0.7 * sin(angle);
   float brightness = band * (0.3 + 1.1 * turbulence) * beaming
-    * (0.45 + 1.55 * heat * heat) * (0.4 + 1.6 * gain) * 0.9;
-  return diskColor(heat, spectral) * brightness;
+    * (0.45 + 1.55 * heat * heat) * (0.4 + 1.6 * uDiskGain) * 0.9;
+  return diskColor(heat, uSpectral) * brightness;
 }
 
 float starField(vec2 p) {
@@ -94,27 +94,15 @@ float starField(vec2 p) {
 
 void main() {
   vec2 uv = vUv;
+  vec2 centered = vec2((uv.x - uHole.x) * uAspect, uv.y - uHole.y);
+  float r = length(centered);
+  float rs = uMass * SCHWARZSCHILD_SCALE;
+  float presence = smoothstep(0.004, 0.02, rs);
 
-  vec2 totalShift = vec2(0.0);
-  vec3 glow = vec3(0.0);
-  vec2 starDrift = vec2(0.0);
-  float horizon = 1.0;
-
-  for (int i = 0; i < 2; i++) {
-    vec2 centered = vec2((uv.x - uHoles[i].x) * uAspect, uv.y - uHoles[i].y);
-    float r = length(centered);
-    float rs = uMasses[i] * SCHWARZSCHILD_SCALE;
-    float presence = smoothstep(0.004, 0.02, rs);
-    vec2 outward = r > 1e-5 ? centered / r : vec2(0.0, 1.0);
-    float reach = 1.0 - smoothstep(rs * 3.0, rs * 8.0 + 1e-5, r);
-    float deflection = rs * rs / max(r, 1e-4) * (1.15 + uLensPowers[i] * 3.3) * reach;
-    totalShift += vec2(outward.x * deflection / uAspect, outward.y * deflection);
-    float ringT = (r - rs * 1.5) / max(rs * 0.16, 1e-4);
-    vec3 ringColor = mix(vec3(1.0, 0.86, 0.58), vec3(0.7, 0.85, 1.0), uSpectrals[i]);
-    glow += ringColor * exp(-ringT * ringT) * presence * 1.1;
-    horizon *= smoothstep(rs, rs * 1.02 + 1e-5, r);
-    starDrift += outward * uMasses[i];
-  }
+  vec2 outward = r > 1e-5 ? centered / r : vec2(0.0, 1.0);
+  float reach = 1.0 - smoothstep(rs * 3.0, rs * 8.0 + 1e-5, r);
+  float deflection = rs * rs / max(r, 1e-4) * (1.15 + uLensPower * 3.3) * reach;
+  vec2 totalShift = vec2(outward.x * deflection / uAspect, outward.y * deflection);
 
   vec2 lensedUv = uv - totalShift;
   vec2 chroma = totalShift * 0.08;
@@ -128,34 +116,34 @@ void main() {
   vec2 vignettePos = (uv - 0.5) * vec2(uAspect, 1.0);
   graded *= 1.0 - 0.45 * smoothstep(0.35, 1.05, length(vignettePos));
 
-  vec2 starCoord = (vec2(uv.x * uAspect, uv.y) + starDrift * uTime * 0.02) * 55.0;
+  vec2 starCoord = (vec2(uv.x * uAspect, uv.y) + outward * uMass * uTime * 0.02) * 55.0;
   float stars = starField(starCoord) * (1.0 - smoothstep(0.05, 0.4, luma)) * 0.6;
 
-  vec3 emissive = glow;
-  for (int i = 0; i < 2; i++) {
-    float rs = uMasses[i] * SCHWARZSCHILD_SCALE;
-    float presence = smoothstep(0.004, 0.02, rs);
-    vec2 lensedCentered = vec2((lensedUv.x - uHoles[i].x) * uAspect, lensedUv.y - uHoles[i].y);
-    float rollCos = cos(uTilts[i]);
-    float rollSin = sin(uTilts[i]);
-    vec2 diskPlane = mat2(rollCos, -rollSin, rollSin, rollCos) * lensedCentered;
-    emissive += accretionDisk(diskPlane, rs, uDiskGains[i], uSpectrals[i]) * presence;
+  float ringT = (r - rs * 1.5) / max(rs * 0.16, 1e-4);
+  vec3 ringColor = mix(vec3(1.0, 0.86, 0.58), vec3(0.7, 0.85, 1.0), uSpectral);
+  vec3 emissive = ringColor * exp(-ringT * ringT) * presence * 1.1;
 
-    if (uJets[i] > 0.004) {
-      vec2 axis = vec2(uJetDirs[i].x * uAspect, uJetDirs[i].y);
-      axis /= max(length(axis), 1e-5);
-      float along = dot(lensedCentered, axis);
-      float perp = length(lensedCentered - axis * along);
-      float coreT = perp / max(rs * 0.4, 1e-4);
-      float beamCore = exp(-coreT * coreT);
-      float beamReach = exp(-abs(along) / max(rs * 3.5, 1e-4));
-      float pulse = 0.8 + 0.2 * sin(uTime * 24.0 - abs(along) * 30.0);
-      emissive += vec3(0.55, 0.75, 1.0) * beamCore * beamReach * pulse * uJets[i] * presence * 1.6;
-    }
+  vec2 lensedCentered = vec2((lensedUv.x - uHole.x) * uAspect, lensedUv.y - uHole.y);
+  float rollCos = cos(uTilt);
+  float rollSin = sin(uTilt);
+  vec2 diskPlane = mat2(rollCos, -rollSin, rollSin, rollCos) * lensedCentered;
+  emissive += accretionDisk(diskPlane, rs) * presence;
+
+  if (uJet > 0.004) {
+    vec2 axis = vec2(uJetDir.x * uAspect, uJetDir.y);
+    axis /= max(length(axis), 1e-5);
+    float along = dot(lensedCentered, axis);
+    float perp = length(lensedCentered - axis * along);
+    float coreT = perp / max(rs * 0.4, 1e-4);
+    float beamCore = exp(-coreT * coreT);
+    float beamReach = exp(-abs(along) / max(rs * 3.5, 1e-4));
+    float pulse = 0.8 + 0.2 * sin(uTime * 24.0 - abs(along) * 30.0);
+    emissive += vec3(0.55, 0.75, 1.0) * beamCore * beamReach * pulse * uJet * presence * 1.6;
   }
 
   emissive /= 1.0 + 0.45 * emissive;
 
+  float horizon = smoothstep(rs, rs * 1.02 + 1e-5, r);
   vec3 color = graded + vec3(stars) + emissive;
   color *= horizon;
   gl_FragColor = vec4(color, 1.0);

@@ -1,7 +1,8 @@
 import { startCamera } from "./camera"
-import { createBlackholeView, type HoleState } from "./blackhole"
-import { createHandTracker, type HandPose, type HandReading } from "./hands"
+import { createBlackholeView } from "./blackhole"
+import { createHandTracker, type HandPose, type HandReading, type KnobFinger } from "./hands"
 import { createHud } from "./hud"
+import { createOverlay, type ControlViz } from "./overlay"
 
 const SMOOTHING = 0.15
 const KNOB_SMOOTHING = 0.2
@@ -12,35 +13,30 @@ const DRIFT_DAMPING = 2.5
 const FREE_MASS_DECAY = 2.5
 const COLLAPSE_RATE = 6
 const POSE_STABLE_SECONDS = 0.08
-const PEACE_TIME_SCALE = 0.12
 const TIME_SCALE_SMOOTHING = 0.08
+const RESET_HOLD_SECONDS = 0.5
+const TRACKER_STALE_SECONDS = 0.6
 
-type HoleSlot = HoleState & {
-  vx: number
-  vy: number
-  bound: boolean
+const KNOB_TIPS: Record<KnobFinger, number> = { index: 8, middle: 12, ring: 16, pinky: 20 }
+
+type Tracked = {
+  palmX: number
+  palmY: number
+  unseenFor: number
   pose: HandPose
   poseCandidate: HandPose
   poseTimer: number
+  resetHold: number
 }
 
-const createSlot = (): HoleSlot => ({
-  x: 0.5,
-  y: 0.5,
-  mass: 0,
-  tilt: 0,
-  diskGain: 0.5,
-  lensPower: 0.35,
-  spectral: 0,
-  jet: 0,
-  jetX: 0,
-  jetY: 1,
-  vx: 0,
-  vy: 0,
-  bound: false,
+const createTracked = (): Tracked => ({
+  palmX: 0.5,
+  palmY: 0.5,
+  unseenFor: 1e9,
   pose: "neutral",
   poseCandidate: "neutral",
   poseTimer: 0,
+  resetHold: 0,
 })
 
 const clamp = (value: number, min: number, max: number): number =>
@@ -49,124 +45,184 @@ const clamp = (value: number, min: number, max: number): number =>
 const angleLerp = (current: number, target: number, factor: number): number =>
   current + Math.atan2(Math.sin(target - current), Math.cos(target - current)) * factor
 
-const readingDistance = (reading: HandReading, slot: HoleSlot): number =>
-  Math.hypot(reading.palm.x - slot.x, reading.palm.y - slot.y)
+const trackerDistance = (reading: HandReading, tracker: Tracked): number =>
+  Math.hypot(reading.palm.x - tracker.palmX, reading.palm.y - tracker.palmY)
 
 function assignReadings(
   readings: HandReading[],
-  slots: readonly [HoleSlot, HoleSlot],
+  trackers: readonly [Tracked, Tracked],
 ): [HandReading | undefined, HandReading | undefined] {
   if (readings.length >= 2) {
     const first = readings[0]
     const second = readings[1]
-    const direct = readingDistance(first, slots[0]) + readingDistance(second, slots[1])
-    const swapped = readingDistance(first, slots[1]) + readingDistance(second, slots[0])
+    const direct = trackerDistance(first, trackers[0]) + trackerDistance(second, trackers[1])
+    const swapped = trackerDistance(first, trackers[1]) + trackerDistance(second, trackers[0])
     return direct <= swapped ? [first, second] : [second, first]
   }
   if (readings.length === 1) {
     const only = readings[0]
-    const slot1Closer = readingDistance(only, slots[1]) < readingDistance(only, slots[0])
-    const slot1Live = slots[1].bound || slots[1].mass > 0.02
-    return slot1Closer && slot1Live ? [undefined, only] : [only, undefined]
+    const holeFresh = trackers[0].unseenFor < TRACKER_STALE_SECONDS
+    const controlFresh = trackers[1].unseenFor < TRACKER_STALE_SECONDS
+    const controlCloser = trackerDistance(only, trackers[1]) < trackerDistance(only, trackers[0])
+    if (controlFresh && (!holeFresh || controlCloser)) return [undefined, only]
+    return [only, undefined]
   }
   return [undefined, undefined]
 }
 
-function stabilizePose(slot: HoleSlot, instant: HandPose, dt: number): HandPose {
-  if (instant === slot.pose) {
-    slot.poseTimer = 0
-    return slot.pose
-  }
-  if (instant !== slot.poseCandidate) {
-    slot.poseCandidate = instant
-    slot.poseTimer = 0
-    return slot.pose
-  }
-  slot.poseTimer += dt
-  if (slot.poseTimer > POSE_STABLE_SECONDS) {
-    slot.pose = instant
-    slot.poseTimer = 0
-  }
-  return slot.pose
-}
-
-function driveSlot(slot: HoleSlot, reading: HandReading | undefined, dt: number): void {
+function touchTracker(tracker: Tracked, reading: HandReading | undefined, dt: number): void {
   if (!reading) {
-    slot.bound = false
-    slot.pose = "neutral"
-    slot.poseCandidate = "neutral"
-    slot.x = clamp(slot.x + slot.vx * dt, -0.2, 1.2)
-    slot.y = clamp(slot.y + slot.vy * dt, -0.2, 1.2)
-    const damping = Math.exp(-DRIFT_DAMPING * dt)
-    slot.vx *= damping
-    slot.vy *= damping
-    slot.mass *= Math.exp(-FREE_MASS_DECAY * dt)
-    slot.jet += (0 - slot.jet) * JET_SMOOTHING
+    tracker.unseenFor += dt
+    tracker.poseTimer = 0
+    tracker.resetHold = 0
     return
   }
-  slot.bound = true
-  const previousX = slot.x
-  const previousY = slot.y
-  slot.x += (reading.palm.x - slot.x) * SMOOTHING
-  slot.y += (reading.palm.y - slot.y) * SMOOTHING
-  slot.vx += ((slot.x - previousX) / dt - slot.vx) * VELOCITY_SMOOTHING
-  slot.vy += ((slot.y - previousY) / dt - slot.vy) * VELOCITY_SMOOTHING
-  slot.tilt = angleLerp(slot.tilt, reading.tilt, SMOOTHING)
-
-  const pose = stabilizePose(slot, reading.pose, dt)
-  let jetTarget = 0
-
-  if (reading.knob) {
-    const tightness = reading.knob.tightness
-    if (reading.knob.finger === "middle") {
-      slot.diskGain += (tightness - slot.diskGain) * KNOB_SMOOTHING
-    } else if (reading.knob.finger === "ring") {
-      slot.lensPower += (tightness - slot.lensPower) * KNOB_SMOOTHING
-    } else {
-      slot.spectral += (tightness - slot.spectral) * KNOB_SMOOTHING
+  tracker.unseenFor = 0
+  tracker.palmX = reading.palm.x
+  tracker.palmY = reading.palm.y
+  if (reading.pose === tracker.pose) {
+    tracker.poseTimer = 0
+  } else if (reading.pose !== tracker.poseCandidate) {
+    tracker.poseCandidate = reading.pose
+    tracker.poseTimer = 0
+  } else {
+    tracker.poseTimer += dt
+    if (tracker.poseTimer > POSE_STABLE_SECONDS) {
+      tracker.pose = reading.pose
+      tracker.poseTimer = 0
     }
-  } else if (pose === "fist") {
-    slot.mass *= Math.exp(-COLLAPSE_RATE * dt)
-  } else if (pose === "point") {
-    jetTarget = 1
-    slot.jetX += (reading.jetDir.x - slot.jetX) * JET_DIR_SMOOTHING
-    slot.jetY += (reading.jetDir.y - slot.jetY) * JET_DIR_SMOOTHING
-  } else if (pose === "neutral") {
-    slot.mass += (reading.pinchMass - slot.mass) * SMOOTHING
   }
-
-  slot.jet += (jetTarget - slot.jet) * JET_SMOOTHING
 }
 
 async function boot(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#view")
+  const overlayCanvas = document.querySelector<HTMLCanvasElement>("#overlay")
   const hudRoot = document.querySelector<HTMLDivElement>("#hud")
-  if (!canvas || !hudRoot) throw new Error("missing #view or #hud element")
+  if (!canvas || !overlayCanvas || !hudRoot) throw new Error("missing #view, #overlay or #hud")
   const hud = createHud(hudRoot)
 
   hud.message("REQUESTING CAMERA ACCESS...")
   const video = await startCamera()
   hud.message("LOADING HAND TRACKER...")
   const view = createBlackholeView(canvas, video)
+  const overlay = createOverlay(overlayCanvas)
   const readHands = await createHandTracker(video)
 
-  const slots: [HoleSlot, HoleSlot] = [createSlot(), createSlot()]
+  const hole = {
+    x: 0.5,
+    y: 0.5,
+    mass: 0,
+    tilt: 0,
+    diskGain: 0.5,
+    lensPower: 0.35,
+    spectral: 0,
+    jet: 0,
+    jetX: 0,
+    jetY: 1,
+    vx: 0,
+    vy: 0,
+  }
+  const trackers: [Tracked, Tracked] = [createTracked(), createTracked()]
+  let timeDial = 0
   let timeScale = 1
   let warpedTime = 0
   let fps = 60
   let previous = performance.now()
 
-  const statusFor = (slot: HoleSlot, reading: HandReading | undefined): string => {
-    if (!reading) return ""
-    if (reading.knob) {
-      if (reading.knob.finger === "middle") return `DISK ${slot.diskGain.toFixed(2)}`
-      if (reading.knob.finger === "ring") return `LENS ${slot.lensPower.toFixed(2)}`
-      return `HUE ${slot.spectral.toFixed(2)}`
+  const channelValue = (finger: KnobFinger): number => {
+    if (finger === "index") return hole.diskGain
+    if (finger === "middle") return hole.lensPower
+    if (finger === "ring") return hole.spectral
+    return timeDial
+  }
+
+  const applyKnob = (finger: KnobFinger, tightness: number): string => {
+    if (finger === "index") {
+      hole.diskGain += (tightness - hole.diskGain) * KNOB_SMOOTHING
+      return `DISK ${hole.diskGain.toFixed(2)}`
     }
-    if (slot.pose === "point") return "JET"
-    if (slot.pose === "peace") return `TIME ${timeScale.toFixed(2)}X`
-    if (slot.pose === "fist") return "COLLAPSE"
-    return ""
+    if (finger === "middle") {
+      hole.lensPower += (tightness - hole.lensPower) * KNOB_SMOOTHING
+      return `LENS ${hole.lensPower.toFixed(2)}`
+    }
+    if (finger === "ring") {
+      hole.spectral += (tightness - hole.spectral) * KNOB_SMOOTHING
+      return `HUE ${hole.spectral.toFixed(2)}`
+    }
+    timeDial += (tightness - timeDial) * KNOB_SMOOTHING
+    return `TIME ${(1 - timeDial * 0.95).toFixed(2)}X`
+  }
+
+  const driveHole = (reading: HandReading | undefined, dt: number): void => {
+    if (!reading) {
+      hole.x = clamp(hole.x + hole.vx * dt, -0.2, 1.2)
+      hole.y = clamp(hole.y + hole.vy * dt, -0.2, 1.2)
+      const damping = Math.exp(-DRIFT_DAMPING * dt)
+      hole.vx *= damping
+      hole.vy *= damping
+      hole.mass *= Math.exp(-FREE_MASS_DECAY * dt)
+      return
+    }
+    const previousX = hole.x
+    const previousY = hole.y
+    hole.x += (reading.palm.x - hole.x) * SMOOTHING
+    hole.y += (reading.palm.y - hole.y) * SMOOTHING
+    hole.vx += ((hole.x - previousX) / dt - hole.vx) * VELOCITY_SMOOTHING
+    hole.vy += ((hole.y - previousY) / dt - hole.vy) * VELOCITY_SMOOTHING
+    hole.tilt = angleLerp(hole.tilt, reading.tilt, SMOOTHING)
+    hole.mass += (reading.pinchMass - hole.mass) * SMOOTHING
+  }
+
+  const driveControl = (
+    tracker: Tracked,
+    reading: HandReading | undefined,
+    dt: number,
+  ): { status: string; viz: ControlViz | null } => {
+    if (!reading) {
+      hole.jet += (0 - hole.jet) * JET_SMOOTHING
+      return { status: "", viz: null }
+    }
+    let jetTarget = 0
+    let status = ""
+    let mode: ControlViz["mode"] = "idle"
+    let knobTip = 8
+    let value = 0
+
+    if (reading.knob && tracker.pose === "neutral") {
+      status = applyKnob(reading.knob.finger, reading.knob.tightness)
+      mode = "knob"
+      knobTip = KNOB_TIPS[reading.knob.finger]
+      value = channelValue(reading.knob.finger)
+      tracker.resetHold = 0
+    } else if (tracker.pose === "point") {
+      jetTarget = 1
+      hole.jetX += (reading.jetDir.x - hole.jetX) * JET_DIR_SMOOTHING
+      hole.jetY += (reading.jetDir.y - hole.jetY) * JET_DIR_SMOOTHING
+      status = "JET"
+      mode = "jet"
+      tracker.resetHold = 0
+    } else if (tracker.pose === "fist") {
+      hole.mass *= Math.exp(-COLLAPSE_RATE * dt)
+      status = "COLLAPSE"
+      mode = "fist"
+      tracker.resetHold = 0
+    } else if (tracker.pose === "peace") {
+      tracker.resetHold += dt
+      value = Math.min(tracker.resetHold / RESET_HOLD_SECONDS, 1)
+      status = value >= 1 ? "RESET DONE" : "RESET"
+      mode = "reset"
+      if (tracker.resetHold >= RESET_HOLD_SECONDS) {
+        hole.diskGain = 0.5
+        hole.lensPower = 0.35
+        hole.spectral = 0
+        timeDial = 0
+      }
+    } else {
+      tracker.resetHold = 0
+    }
+
+    hole.jet += (jetTarget - hole.jet) * JET_SMOOTHING
+    return { status, viz: { points: reading.points, mode, knobTip, value, label: status } }
   }
 
   const frame = (now: number): void => {
@@ -175,22 +231,26 @@ async function boot(): Promise<void> {
     fps += (1 / dt - fps) * 0.05
 
     const readings = readHands(now)
-    const assigned = assignReadings(readings, slots)
-    driveSlot(slots[0], assigned[0], dt)
-    driveSlot(slots[1], assigned[1], dt)
+    const assigned = assignReadings(readings, trackers)
+    touchTracker(trackers[0], assigned[0], dt)
+    touchTracker(trackers[1], assigned[1], dt)
+    driveHole(assigned[0], dt)
+    const control = driveControl(trackers[1], assigned[1], dt)
 
-    const anyPeace = slots.some((slot) => slot.bound && slot.pose === "peace")
-    timeScale += ((anyPeace ? PEACE_TIME_SCALE : 1) - timeScale) * TIME_SCALE_SMOOTHING
+    timeScale += (1 - timeDial * 0.95 - timeScale) * TIME_SCALE_SMOOTHING
     warpedTime += dt * timeScale
 
-    view.update(slots, warpedTime)
+    view.update(hole, warpedTime)
     view.render()
-    const status = statusFor(slots[0], assigned[0]) || statusFor(slots[1], assigned[1])
-    hud.update(fps, slots[0].mass + slots[1].mass, readings.length, status)
+    overlay.draw(control.viz, now / 1000)
+    hud.update(fps, hole.mass, readings.length, control.status)
     requestAnimationFrame(frame)
   }
 
-  window.addEventListener("resize", view.resize)
+  window.addEventListener("resize", () => {
+    view.resize()
+    overlay.resize()
+  })
   requestAnimationFrame(frame)
 }
 

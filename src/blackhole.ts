@@ -27,7 +27,7 @@ export type HoleState = {
 }
 
 export type BlackholeView = {
-  update: (holes: readonly HoleState[], timeSeconds: number) => void
+  update: (hole: HoleState, timeSeconds: number) => void
   render: () => void
   resize: () => void
 }
@@ -45,14 +45,14 @@ export function createBlackholeView(canvas: HTMLCanvasElement, video: HTMLVideoE
 
   const uniforms = {
     uVideo: { value: videoTexture },
-    uHoles: { value: [new THREE.Vector2(0.5, 0.5), new THREE.Vector2(0.5, 0.5)] },
-    uMasses: { value: [0, 0] },
-    uTilts: { value: [0, 0] },
-    uDiskGains: { value: [0.5, 0.5] },
-    uLensPowers: { value: [0.35, 0.35] },
-    uSpectrals: { value: [0, 0] },
-    uJets: { value: [0, 0] },
-    uJetDirs: { value: [new THREE.Vector2(0, 1), new THREE.Vector2(0, 1)] },
+    uHole: { value: new THREE.Vector2(0.5, 0.5) },
+    uMass: { value: 0 },
+    uTilt: { value: 0 },
+    uDiskGain: { value: 0.5 },
+    uLensPower: { value: 0.35 },
+    uSpectral: { value: 0 },
+    uJet: { value: 0 },
+    uJetDir: { value: new THREE.Vector2(0, 1) },
     uTime: { value: 0 },
     uAspect: { value: 1 },
     uVideoAspect: { value: video.videoWidth / Math.max(video.videoHeight, 1) },
@@ -86,19 +86,15 @@ export function createBlackholeView(canvas: HTMLCanvasElement, video: HTMLVideoE
   resize()
 
   return {
-    update: (holes, timeSeconds) => {
-      for (let index = 0; index < 2; index++) {
-        const hole = holes[index]
-        if (!hole) continue
-        uniforms.uHoles.value[index].set(hole.x, hole.y)
-        uniforms.uMasses.value[index] = hole.mass
-        uniforms.uTilts.value[index] = hole.tilt
-        uniforms.uDiskGains.value[index] = hole.diskGain
-        uniforms.uLensPowers.value[index] = hole.lensPower
-        uniforms.uSpectrals.value[index] = hole.spectral
-        uniforms.uJets.value[index] = hole.jet
-        uniforms.uJetDirs.value[index].set(hole.jetX, hole.jetY)
-      }
+    update: (hole, timeSeconds) => {
+      uniforms.uHole.value.set(hole.x, hole.y)
+      uniforms.uMass.value = hole.mass
+      uniforms.uTilt.value = hole.tilt
+      uniforms.uDiskGain.value = hole.diskGain
+      uniforms.uLensPower.value = hole.lensPower
+      uniforms.uSpectral.value = hole.spectral
+      uniforms.uJet.value = hole.jet
+      uniforms.uJetDir.value.set(hole.jetX, hole.jetY)
       uniforms.uTime.value = timeSeconds
     },
     render: () => composer.render(),

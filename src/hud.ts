@@ -17,11 +17,15 @@ export function createHud(root: HTMLElement): Hud {
         `MASS ${mass.toFixed(2)}`,
       ]
       if (status) lines.push(`<span class="active">${status}</span>`)
-      lines.push(
-        handsCount === 0
-          ? `<span class="hint">SHOW HAND TO CAMERA</span>`
-          : `<span class="dim">IDX MASS / MID DISK / RING LENS / PNK HUE / POINT JET / V SLOWMO / FIST EAT</span>`,
-      )
+      if (handsCount === 0) {
+        lines.push(`<span class="hint">SHOW HAND TO CAMERA</span>`)
+      } else if (handsCount === 1) {
+        lines.push(`<span class="dim">RAISE SECOND HAND = CONTROL DECK</span>`)
+      } else {
+        lines.push(
+          `<span class="dim">IDX DISK / MID LENS / RING HUE / PNK TIME / POINT JET / FIST EAT / V RESET</span>`,
+        )
+      }
       render(lines.join("\n"))
     },
     message: (text) => render(`<span class="hint">${text}</span>`),

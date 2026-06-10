@@ -10,14 +10,15 @@ const FINGER_JOINTS = {
   ring: { pip: 14, tip: 16 },
   pinky: { pip: 18, tip: 20 },
 } as const
-const KNOB_FINGERS = ["middle", "ring", "pinky"] as const
+const KNOB_CHANNELS = ["index", "middle", "ring", "pinky"] as const
 const KNOB_ENGAGE_RATIO = 0.45
 
-export type KnobFinger = (typeof KNOB_FINGERS)[number]
+export type KnobFinger = (typeof KNOB_CHANNELS)[number]
 export type HandPose = "neutral" | "point" | "peace" | "fist"
 
 export type HandReading = {
   palm: { x: number; y: number }
+  points: { x: number; y: number }[]
   tilt: number
   pose: HandPose
   knob: { finger: KnobFinger; tightness: number } | null
@@ -59,7 +60,7 @@ function rollTilt(landmarks: NormalizedLandmark[]): number {
   return tilt < -Math.PI ? tilt + Math.PI * 2 : tilt
 }
 
-function isExtended(landmarks: NormalizedLandmark[], finger: keyof typeof FINGER_JOINTS): boolean {
+function isExtended(landmarks: NormalizedLandmark[], finger: KnobFinger): boolean {
   const wrist = landmarks[0]
   const joints = FINGER_JOINTS[finger]
   return distance(landmarks[joints.tip], wrist) > distance(landmarks[joints.pip], wrist) * 1.1
@@ -80,11 +81,20 @@ function detectKnob(
   landmarks: NormalizedLandmark[],
   scale: number,
 ): { finger: KnobFinger; tightness: number } | null {
-  if (!isExtended(landmarks, "index")) return null
   const thumbTip = landmarks[4]
+  const extended = {
+    index: isExtended(landmarks, "index"),
+    middle: isExtended(landmarks, "middle"),
+    ring: isExtended(landmarks, "ring"),
+    pinky: isExtended(landmarks, "pinky"),
+  }
   let bestFinger: KnobFinger | null = null
   let bestRatio = KNOB_ENGAGE_RATIO
-  for (const finger of KNOB_FINGERS) {
+  for (const finger of KNOB_CHANNELS) {
+    const extendedOthers = KNOB_CHANNELS.filter(
+      (other) => other !== finger && extended[other],
+    ).length
+    if (extendedOthers < 2) continue
     const ratio = distance(thumbTip, landmarks[FINGER_JOINTS[finger].tip]) / scale
     if (ratio < bestRatio) {
       bestRatio = ratio
@@ -113,6 +123,7 @@ function toReading(landmarks: NormalizedLandmark[]): HandReading {
   const scale = handScale(landmarks)
   return {
     palm: palmCenter(landmarks),
+    points: landmarks.map((point) => ({ x: 1 - point.x, y: point.y })),
     tilt: rollTilt(landmarks),
     pose: detectPose(landmarks),
     knob: detectKnob(landmarks, scale),
