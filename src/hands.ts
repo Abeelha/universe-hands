@@ -39,7 +39,7 @@ function pinchMass(landmarks: NormalizedLandmark[]): number {
   const pinchSpan = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y)
   const handScale = Math.hypot(wrist.x - middleBase.x, wrist.y - middleBase.y)
   const spread = pinchSpan / Math.max(handScale, 1e-5)
-  return 1 - smoothstep(0.18, 1.05, spread)
+  return 1 - smoothstep(0.15, 0.85, spread)
 }
 
 export async function createHandTracker(video: HTMLVideoElement): Promise<HandReader> {

@@ -54,7 +54,7 @@ vec3 accretionDisk(vec2 centered, float rs) {
   vec2 plane = vec2(centered.x, centered.y / 0.35);
   float radius = length(plane);
   float inner = rs * 1.9;
-  float outer = rs * 5.8;
+  float outer = rs * 4.5;
   float band = smoothstep(inner * 0.82, inner * 1.12, radius)
     * (1.0 - smoothstep(outer * 0.72, outer, radius));
   if (band < 1e-3) return vec3(0.0);
@@ -66,7 +66,7 @@ vec3 accretionDisk(vec2 centered, float rs) {
   float heat = 1.0 - smoothstep(inner, outer, radius);
   float beaming = 1.0 + 0.7 * sin(angle);
   float brightness = band * (0.3 + 1.1 * turbulence) * beaming * (0.45 + 1.55 * heat * heat);
-  return blackbody(heat) * brightness * 1.7;
+  return blackbody(heat) * brightness * 0.9;
 }
 
 float starField(vec2 p) {
@@ -84,7 +84,7 @@ void main() {
   vec2 uv = vUv;
   vec2 centered = vec2((uv.x - uHole.x) * uAspect, uv.y - uHole.y);
   float r = length(centered);
-  float rs = uMass * 0.05;
+  float rs = uMass * 0.09;
   float presence = smoothstep(0.002, 0.012, rs);
 
   vec2 outward = r > 1e-5 ? centered / r : vec2(0.0, 1.0);
@@ -114,11 +114,14 @@ void main() {
   float ringWidth = max(rs * 0.16, 1e-4);
   float ringT = (r - ringRadius) / ringWidth;
   float ring = exp(-ringT * ringT) * presence;
-  vec3 ringGlow = vec3(1.0, 0.86, 0.58) * ring * 2.4;
+  vec3 ringGlow = vec3(1.0, 0.86, 0.58) * ring * 1.3;
 
   float horizon = smoothstep(rs, rs * 1.02 + 1e-5, r);
 
-  vec3 color = graded + vec3(stars) + disk + ringGlow;
+  vec3 emissive = disk + ringGlow;
+  emissive /= 1.0 + 0.3 * emissive;
+
+  vec3 color = graded + vec3(stars) + emissive;
   color *= horizon;
   gl_FragColor = vec4(color, 1.0);
 }
