@@ -2,9 +2,11 @@ uniform sampler2D uVideo;
 uniform vec2 uHoles[2];
 uniform float uMasses[2];
 uniform float uTilts[2];
-uniform vec2 uBurstCenter;
-uniform float uBurstAge;
-uniform float uBurstStrength;
+uniform float uDiskGains[2];
+uniform float uLensPowers[2];
+uniform float uSpectrals[2];
+uniform float uJets[2];
+uniform vec2 uJetDirs[2];
 uniform float uTime;
 uniform float uAspect;
 uniform float uVideoAspect;
@@ -12,7 +14,6 @@ uniform float uVideoAspect;
 varying vec2 vUv;
 
 const float SCHWARZSCHILD_SCALE = 0.09;
-const float BURST_DURATION = 1.2;
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -48,17 +49,20 @@ vec3 sampleVideo(vec2 p) {
   return texture2D(uVideo, vec2(1.0 - videoUv.x, videoUv.y)).rgb;
 }
 
-vec3 blackbody(float heat) {
-  vec3 ember = vec3(0.45, 0.03, 0.0);
-  vec3 flame = vec3(1.0, 0.42, 0.08);
-  vec3 core = vec3(1.0, 0.96, 0.9);
-  vec3 warm = mix(ember, flame, smoothstep(0.0, 0.55, heat));
-  return mix(warm, core, smoothstep(0.55, 1.0, heat));
+vec3 paletteGradient(float heat, vec3 low, vec3 mid, vec3 high) {
+  vec3 base = mix(low, mid, smoothstep(0.0, 0.55, heat));
+  return mix(base, high, smoothstep(0.55, 1.0, heat));
 }
 
-vec3 accretionDisk(vec2 centered, float rs) {
+vec3 diskColor(float heat, float spectral) {
+  vec3 warm = paletteGradient(heat, vec3(0.45, 0.03, 0.0), vec3(1.0, 0.42, 0.08), vec3(1.0, 0.96, 0.9));
+  vec3 cool = paletteGradient(heat, vec3(0.16, 0.02, 0.42), vec3(0.2, 0.5, 1.0), vec3(0.85, 0.97, 1.0));
+  return mix(warm, cool, spectral);
+}
+
+vec3 accretionDisk(vec2 plane2d, float rs, float gain, float spectral) {
   if (rs < 1e-4) return vec3(0.0);
-  vec2 plane = vec2(centered.x, centered.y / 0.35);
+  vec2 plane = vec2(plane2d.x, plane2d.y / 0.35);
   float radius = length(plane);
   float inner = rs * 1.9;
   float outer = rs * 4.5;
@@ -72,8 +76,9 @@ vec3 accretionDisk(vec2 centered, float rs) {
   float turbulence = fbm(swirl * 1.35);
   float heat = 1.0 - smoothstep(inner, outer, radius);
   float beaming = 1.0 + 0.7 * sin(angle);
-  float brightness = band * (0.3 + 1.1 * turbulence) * beaming * (0.45 + 1.55 * heat * heat);
-  return blackbody(heat) * brightness * 0.9;
+  float brightness = band * (0.3 + 1.1 * turbulence) * beaming
+    * (0.45 + 1.55 * heat * heat) * (0.4 + 1.6 * gain) * 0.9;
+  return diskColor(heat, spectral) * brightness;
 }
 
 float starField(vec2 p) {
@@ -102,25 +107,13 @@ void main() {
     float presence = smoothstep(0.004, 0.02, rs);
     vec2 outward = r > 1e-5 ? centered / r : vec2(0.0, 1.0);
     float reach = 1.0 - smoothstep(rs * 3.0, rs * 8.0 + 1e-5, r);
-    float deflection = rs * rs / max(r, 1e-4) * 2.3 * reach;
+    float deflection = rs * rs / max(r, 1e-4) * (1.15 + uLensPowers[i] * 3.3) * reach;
     totalShift += vec2(outward.x * deflection / uAspect, outward.y * deflection);
     float ringT = (r - rs * 1.5) / max(rs * 0.16, 1e-4);
-    glow += vec3(1.0, 0.86, 0.58) * exp(-ringT * ringT) * presence * 1.1;
+    vec3 ringColor = mix(vec3(1.0, 0.86, 0.58), vec3(0.7, 0.85, 1.0), uSpectrals[i]);
+    glow += ringColor * exp(-ringT * ringT) * presence * 1.1;
     horizon *= smoothstep(rs, rs * 1.02 + 1e-5, r);
     starDrift += outward * uMasses[i];
-  }
-
-  vec2 burstCentered = vec2((uv.x - uBurstCenter.x) * uAspect, uv.y - uBurstCenter.y);
-  float burstR = length(burstCentered);
-  if (uBurstAge >= 0.0 && uBurstAge < BURST_DURATION && uBurstStrength > 0.001) {
-    float progress = uBurstAge / BURST_DURATION;
-    float fade = uBurstStrength * (1.0 - progress);
-    float waveT = (burstR - progress * 0.85) / 0.05;
-    float wave = exp(-waveT * waveT);
-    vec2 burstDir = burstR > 1e-5 ? burstCentered / burstR : vec2(0.0, 1.0);
-    totalShift += vec2(burstDir.x / uAspect, burstDir.y) * wave * 0.03 * fade;
-    glow += vec3(1.0, 0.8, 0.5) * wave * fade * 1.3;
-    glow += vec3(1.0, 0.95, 0.85) * exp(-uBurstAge * 7.0) * exp(-burstR * burstR * 18.0) * uBurstStrength * 1.8;
   }
 
   vec2 lensedUv = uv - totalShift;
@@ -138,7 +131,7 @@ void main() {
   vec2 starCoord = (vec2(uv.x * uAspect, uv.y) + starDrift * uTime * 0.02) * 55.0;
   float stars = starField(starCoord) * (1.0 - smoothstep(0.05, 0.4, luma)) * 0.6;
 
-  vec3 disk = vec3(0.0);
+  vec3 emissive = glow;
   for (int i = 0; i < 2; i++) {
     float rs = uMasses[i] * SCHWARZSCHILD_SCALE;
     float presence = smoothstep(0.004, 0.02, rs);
@@ -146,10 +139,21 @@ void main() {
     float rollCos = cos(uTilts[i]);
     float rollSin = sin(uTilts[i]);
     vec2 diskPlane = mat2(rollCos, -rollSin, rollSin, rollCos) * lensedCentered;
-    disk += accretionDisk(diskPlane, rs) * presence;
+    emissive += accretionDisk(diskPlane, rs, uDiskGains[i], uSpectrals[i]) * presence;
+
+    if (uJets[i] > 0.004) {
+      vec2 axis = vec2(uJetDirs[i].x * uAspect, uJetDirs[i].y);
+      axis /= max(length(axis), 1e-5);
+      float along = dot(lensedCentered, axis);
+      float perp = length(lensedCentered - axis * along);
+      float coreT = perp / max(rs * 0.4, 1e-4);
+      float beamCore = exp(-coreT * coreT);
+      float beamReach = exp(-abs(along) / max(rs * 3.5, 1e-4));
+      float pulse = 0.8 + 0.2 * sin(uTime * 24.0 - abs(along) * 30.0);
+      emissive += vec3(0.55, 0.75, 1.0) * beamCore * beamReach * pulse * uJets[i] * presence * 1.6;
+    }
   }
 
-  vec3 emissive = disk + glow;
   emissive /= 1.0 + 0.45 * emissive;
 
   vec3 color = graded + vec3(stars) + emissive;

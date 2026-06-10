@@ -4,13 +4,25 @@ const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
 const PALM_LANDMARKS = [0, 5, 9, 13, 17]
-const FINGERTIP_LANDMARKS = [8, 12, 16, 20]
+const FINGER_JOINTS = {
+  index: { pip: 6, tip: 8 },
+  middle: { pip: 10, tip: 12 },
+  ring: { pip: 14, tip: 16 },
+  pinky: { pip: 18, tip: 20 },
+} as const
+const KNOB_FINGERS = ["middle", "ring", "pinky"] as const
+const KNOB_ENGAGE_RATIO = 0.45
+
+export type KnobFinger = (typeof KNOB_FINGERS)[number]
+export type HandPose = "neutral" | "point" | "peace" | "fist"
 
 export type HandReading = {
   palm: { x: number; y: number }
-  mass: number
   tilt: number
-  fist: boolean
+  pose: HandPose
+  knob: { finger: KnobFinger; tightness: number } | null
+  pinchMass: number
+  jetDir: { x: number; y: number }
 }
 
 export type HandReader = (timestampMs: number) => HandReading[]
@@ -20,10 +32,12 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t)
 }
 
+function distance(a: NormalizedLandmark, b: NormalizedLandmark): number {
+  return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
 function handScale(landmarks: NormalizedLandmark[]): number {
-  const wrist = landmarks[0]
-  const middleBase = landmarks[9]
-  return Math.max(Math.hypot(wrist.x - middleBase.x, wrist.y - middleBase.y), 1e-5)
+  return Math.max(distance(landmarks[0], landmarks[9]), 1e-5)
 }
 
 function palmCenter(landmarks: NormalizedLandmark[]): { x: number; y: number } {
@@ -37,13 +51,6 @@ function palmCenter(landmarks: NormalizedLandmark[]): { x: number; y: number } {
   return { x: 1 - x / PALM_LANDMARKS.length, y: 1 - y / PALM_LANDMARKS.length }
 }
 
-function pinchMass(landmarks: NormalizedLandmark[], scale: number): number {
-  const thumbTip = landmarks[4]
-  const indexTip = landmarks[8]
-  const spread = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y) / scale
-  return 1 - smoothstep(0.15, 0.85, spread)
-}
-
 function rollTilt(landmarks: NormalizedLandmark[]): number {
   const wrist = landmarks[0]
   const middleBase = landmarks[9]
@@ -52,23 +59,65 @@ function rollTilt(landmarks: NormalizedLandmark[]): number {
   return tilt < -Math.PI ? tilt + Math.PI * 2 : tilt
 }
 
-function isFist(landmarks: NormalizedLandmark[], scale: number): boolean {
+function isExtended(landmarks: NormalizedLandmark[], finger: keyof typeof FINGER_JOINTS): boolean {
   const wrist = landmarks[0]
-  let total = 0
-  for (const index of FINGERTIP_LANDMARKS) {
-    const tip = landmarks[index]
-    total += Math.hypot(tip.x - wrist.x, tip.y - wrist.y)
+  const joints = FINGER_JOINTS[finger]
+  return distance(landmarks[joints.tip], wrist) > distance(landmarks[joints.pip], wrist) * 1.1
+}
+
+function detectPose(landmarks: NormalizedLandmark[]): HandPose {
+  const index = isExtended(landmarks, "index")
+  const middle = isExtended(landmarks, "middle")
+  const ring = isExtended(landmarks, "ring")
+  const pinky = isExtended(landmarks, "pinky")
+  if (!index && !middle && !ring && !pinky) return "fist"
+  if (index && !middle && !ring && !pinky) return "point"
+  if (index && middle && !ring && !pinky) return "peace"
+  return "neutral"
+}
+
+function detectKnob(
+  landmarks: NormalizedLandmark[],
+  scale: number,
+): { finger: KnobFinger; tightness: number } | null {
+  if (!isExtended(landmarks, "index")) return null
+  const thumbTip = landmarks[4]
+  let bestFinger: KnobFinger | null = null
+  let bestRatio = KNOB_ENGAGE_RATIO
+  for (const finger of KNOB_FINGERS) {
+    const ratio = distance(thumbTip, landmarks[FINGER_JOINTS[finger].tip]) / scale
+    if (ratio < bestRatio) {
+      bestRatio = ratio
+      bestFinger = finger
+    }
   }
-  return total / FINGERTIP_LANDMARKS.length / scale < 1.2
+  if (!bestFinger) return null
+  return { finger: bestFinger, tightness: 1 - smoothstep(0.12, KNOB_ENGAGE_RATIO, bestRatio) }
+}
+
+function pinchMass(landmarks: NormalizedLandmark[], scale: number): number {
+  const spread = distance(landmarks[4], landmarks[8]) / scale
+  return 1 - smoothstep(0.15, 0.85, spread)
+}
+
+function jetDirection(landmarks: NormalizedLandmark[]): { x: number; y: number } {
+  const base = landmarks[5]
+  const tip = landmarks[8]
+  const dx = base.x - tip.x
+  const dy = base.y - tip.y
+  const length = Math.max(Math.hypot(dx, dy), 1e-5)
+  return { x: dx / length, y: dy / length }
 }
 
 function toReading(landmarks: NormalizedLandmark[]): HandReading {
   const scale = handScale(landmarks)
   return {
     palm: palmCenter(landmarks),
-    mass: pinchMass(landmarks, scale),
     tilt: rollTilt(landmarks),
-    fist: isFist(landmarks, scale),
+    pose: detectPose(landmarks),
+    knob: detectKnob(landmarks, scale),
+    pinchMass: pinchMass(landmarks, scale),
+    jetDir: jetDirection(landmarks),
   }
 }
 

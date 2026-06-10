@@ -5,8 +5,9 @@ export async function startCamera(): Promise<HTMLVideoElement> {
   video.muted = true
   const stream = await navigator.mediaDevices.getUserMedia({
     video: {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 60 },
       facingMode: "user",
     },
     audio: false,

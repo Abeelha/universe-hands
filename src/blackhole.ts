@@ -13,11 +13,21 @@ void main() {
 }
 `
 
-export type HoleState = { x: number; y: number; mass: number; tilt: number }
-export type BurstState = { x: number; y: number; age: number; strength: number }
+export type HoleState = {
+  x: number
+  y: number
+  mass: number
+  tilt: number
+  diskGain: number
+  lensPower: number
+  spectral: number
+  jet: number
+  jetX: number
+  jetY: number
+}
 
 export type BlackholeView = {
-  update: (holes: readonly HoleState[], burst: BurstState, timeSeconds: number) => void
+  update: (holes: readonly HoleState[], timeSeconds: number) => void
   render: () => void
   resize: () => void
 }
@@ -38,9 +48,11 @@ export function createBlackholeView(canvas: HTMLCanvasElement, video: HTMLVideoE
     uHoles: { value: [new THREE.Vector2(0.5, 0.5), new THREE.Vector2(0.5, 0.5)] },
     uMasses: { value: [0, 0] },
     uTilts: { value: [0, 0] },
-    uBurstCenter: { value: new THREE.Vector2(0.5, 0.5) },
-    uBurstAge: { value: -1 },
-    uBurstStrength: { value: 0 },
+    uDiskGains: { value: [0.5, 0.5] },
+    uLensPowers: { value: [0.35, 0.35] },
+    uSpectrals: { value: [0, 0] },
+    uJets: { value: [0, 0] },
+    uJetDirs: { value: [new THREE.Vector2(0, 1), new THREE.Vector2(0, 1)] },
     uTime: { value: 0 },
     uAspect: { value: 1 },
     uVideoAspect: { value: video.videoWidth / Math.max(video.videoHeight, 1) },
@@ -74,17 +86,19 @@ export function createBlackholeView(canvas: HTMLCanvasElement, video: HTMLVideoE
   resize()
 
   return {
-    update: (holes, burst, timeSeconds) => {
+    update: (holes, timeSeconds) => {
       for (let index = 0; index < 2; index++) {
         const hole = holes[index]
         if (!hole) continue
         uniforms.uHoles.value[index].set(hole.x, hole.y)
         uniforms.uMasses.value[index] = hole.mass
         uniforms.uTilts.value[index] = hole.tilt
+        uniforms.uDiskGains.value[index] = hole.diskGain
+        uniforms.uLensPowers.value[index] = hole.lensPower
+        uniforms.uSpectrals.value[index] = hole.spectral
+        uniforms.uJets.value[index] = hole.jet
+        uniforms.uJetDirs.value[index].set(hole.jetX, hole.jetY)
       }
-      uniforms.uBurstCenter.value.set(burst.x, burst.y)
-      uniforms.uBurstAge.value = burst.age
-      uniforms.uBurstStrength.value = burst.strength
       uniforms.uTime.value = timeSeconds
     },
     render: () => composer.render(),

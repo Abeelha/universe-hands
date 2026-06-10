@@ -1,22 +1,27 @@
 import { startCamera } from "./camera"
 import { createBlackholeView, type HoleState } from "./blackhole"
-import { createHandTracker, type HandReading } from "./hands"
+import { createHandTracker, type HandPose, type HandReading } from "./hands"
 import { createHud } from "./hud"
 
 const SMOOTHING = 0.15
+const KNOB_SMOOTHING = 0.2
+const JET_SMOOTHING = 0.12
+const JET_DIR_SMOOTHING = 0.25
 const VELOCITY_SMOOTHING = 0.3
 const DRIFT_DAMPING = 2.5
 const FREE_MASS_DECAY = 2.5
-const SCHWARZSCHILD_SCALE = 0.09
-const FIST_MIN_MASS = 0.12
-const BURST_COOLDOWN_SECONDS = 1
+const COLLAPSE_RATE = 6
+const POSE_STABLE_SECONDS = 0.08
+const PEACE_TIME_SCALE = 0.12
+const TIME_SCALE_SMOOTHING = 0.08
 
 type HoleSlot = HoleState & {
   vx: number
   vy: number
   bound: boolean
-  armed: boolean
-  lastBurstAt: number
+  pose: HandPose
+  poseCandidate: HandPose
+  poseTimer: number
 }
 
 const createSlot = (): HoleSlot => ({
@@ -24,11 +29,18 @@ const createSlot = (): HoleSlot => ({
   y: 0.5,
   mass: 0,
   tilt: 0,
+  diskGain: 0.5,
+  lensPower: 0.35,
+  spectral: 0,
+  jet: 0,
+  jetX: 0,
+  jetY: 1,
   vx: 0,
   vy: 0,
   bound: false,
-  armed: true,
-  lastBurstAt: -1e9,
+  pose: "neutral",
+  poseCandidate: "neutral",
+  poseTimer: 0,
 })
 
 const clamp = (value: number, min: number, max: number): number =>
@@ -60,6 +72,72 @@ function assignReadings(
   return [undefined, undefined]
 }
 
+function stabilizePose(slot: HoleSlot, instant: HandPose, dt: number): HandPose {
+  if (instant === slot.pose) {
+    slot.poseTimer = 0
+    return slot.pose
+  }
+  if (instant !== slot.poseCandidate) {
+    slot.poseCandidate = instant
+    slot.poseTimer = 0
+    return slot.pose
+  }
+  slot.poseTimer += dt
+  if (slot.poseTimer > POSE_STABLE_SECONDS) {
+    slot.pose = instant
+    slot.poseTimer = 0
+  }
+  return slot.pose
+}
+
+function driveSlot(slot: HoleSlot, reading: HandReading | undefined, dt: number): void {
+  if (!reading) {
+    slot.bound = false
+    slot.pose = "neutral"
+    slot.poseCandidate = "neutral"
+    slot.x = clamp(slot.x + slot.vx * dt, -0.2, 1.2)
+    slot.y = clamp(slot.y + slot.vy * dt, -0.2, 1.2)
+    const damping = Math.exp(-DRIFT_DAMPING * dt)
+    slot.vx *= damping
+    slot.vy *= damping
+    slot.mass *= Math.exp(-FREE_MASS_DECAY * dt)
+    slot.jet += (0 - slot.jet) * JET_SMOOTHING
+    return
+  }
+  slot.bound = true
+  const previousX = slot.x
+  const previousY = slot.y
+  slot.x += (reading.palm.x - slot.x) * SMOOTHING
+  slot.y += (reading.palm.y - slot.y) * SMOOTHING
+  slot.vx += ((slot.x - previousX) / dt - slot.vx) * VELOCITY_SMOOTHING
+  slot.vy += ((slot.y - previousY) / dt - slot.vy) * VELOCITY_SMOOTHING
+  slot.tilt = angleLerp(slot.tilt, reading.tilt, SMOOTHING)
+
+  const pose = stabilizePose(slot, reading.pose, dt)
+  let jetTarget = 0
+
+  if (reading.knob) {
+    const tightness = reading.knob.tightness
+    if (reading.knob.finger === "middle") {
+      slot.diskGain += (tightness - slot.diskGain) * KNOB_SMOOTHING
+    } else if (reading.knob.finger === "ring") {
+      slot.lensPower += (tightness - slot.lensPower) * KNOB_SMOOTHING
+    } else {
+      slot.spectral += (tightness - slot.spectral) * KNOB_SMOOTHING
+    }
+  } else if (pose === "fist") {
+    slot.mass *= Math.exp(-COLLAPSE_RATE * dt)
+  } else if (pose === "point") {
+    jetTarget = 1
+    slot.jetX += (reading.jetDir.x - slot.jetX) * JET_DIR_SMOOTHING
+    slot.jetY += (reading.jetDir.y - slot.jetY) * JET_DIR_SMOOTHING
+  } else if (pose === "neutral") {
+    slot.mass += (reading.pinchMass - slot.mass) * SMOOTHING
+  }
+
+  slot.jet += (jetTarget - slot.jet) * JET_SMOOTHING
+}
+
 async function boot(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#view")
   const hudRoot = document.querySelector<HTMLDivElement>("#hud")
@@ -73,89 +151,42 @@ async function boot(): Promise<void> {
   const readHands = await createHandTracker(video)
 
   const slots: [HoleSlot, HoleSlot] = [createSlot(), createSlot()]
-  const burst = { x: 0.5, y: 0.5, firedAt: -1e9, strength: 0 }
-  let contactArmed = true
+  let timeScale = 1
+  let warpedTime = 0
   let fps = 60
   let previous = performance.now()
 
-  const fireBurst = (x: number, y: number, strength: number, nowSeconds: number): void => {
-    burst.x = x
-    burst.y = y
-    burst.strength = Math.min(strength, 1.3)
-    burst.firedAt = nowSeconds
-  }
-
-  const driveSlot = (
-    slot: HoleSlot,
-    reading: HandReading | undefined,
-    dt: number,
-    nowSeconds: number,
-  ): void => {
-    if (!reading) {
-      slot.bound = false
-      slot.x = clamp(slot.x + slot.vx * dt, -0.2, 1.2)
-      slot.y = clamp(slot.y + slot.vy * dt, -0.2, 1.2)
-      const damping = Math.exp(-DRIFT_DAMPING * dt)
-      slot.vx *= damping
-      slot.vy *= damping
-      slot.mass *= Math.exp(-FREE_MASS_DECAY * dt)
-      return
+  const statusFor = (slot: HoleSlot, reading: HandReading | undefined): string => {
+    if (!reading) return ""
+    if (reading.knob) {
+      if (reading.knob.finger === "middle") return `DISK ${slot.diskGain.toFixed(2)}`
+      if (reading.knob.finger === "ring") return `LENS ${slot.lensPower.toFixed(2)}`
+      return `HUE ${slot.spectral.toFixed(2)}`
     }
-    slot.bound = true
-    const previousX = slot.x
-    const previousY = slot.y
-    slot.x += (reading.palm.x - slot.x) * SMOOTHING
-    slot.y += (reading.palm.y - slot.y) * SMOOTHING
-    slot.vx += ((slot.x - previousX) / dt - slot.vx) * VELOCITY_SMOOTHING
-    slot.vy += ((slot.y - previousY) / dt - slot.vy) * VELOCITY_SMOOTHING
-    slot.tilt = angleLerp(slot.tilt, reading.tilt, SMOOTHING)
-    if (reading.fist && slot.armed && slot.mass > FIST_MIN_MASS) {
-      fireBurst(slot.x, slot.y, Math.max(slot.mass, 0.5), nowSeconds)
-      slot.armed = false
-      slot.lastBurstAt = nowSeconds
-      slot.mass = 0
-    } else {
-      const targetMass = reading.fist ? 0 : reading.mass
-      slot.mass += (targetMass - slot.mass) * SMOOTHING
-    }
-    if (!reading.fist && nowSeconds - slot.lastBurstAt > BURST_COOLDOWN_SECONDS) {
-      slot.armed = true
-    }
-  }
-
-  const checkBinaryContact = (nowSeconds: number): void => {
-    const [a, b] = slots
-    if (a.mass < 0.15 || b.mass < 0.15) return
-    const aspect = window.innerWidth / window.innerHeight
-    const distance = Math.hypot((a.x - b.x) * aspect, a.y - b.y)
-    const contactRadius = (a.mass + b.mass) * SCHWARZSCHILD_SCALE
-    if (contactArmed && distance < contactRadius * 0.9) {
-      fireBurst((a.x + b.x) / 2, (a.y + b.y) / 2, a.mass + b.mass, nowSeconds)
-      contactArmed = false
-    } else if (distance > contactRadius * 1.6) {
-      contactArmed = true
-    }
+    if (slot.pose === "point") return "JET"
+    if (slot.pose === "peace") return `TIME ${timeScale.toFixed(2)}X`
+    if (slot.pose === "fist") return "COLLAPSE"
+    return ""
   }
 
   const frame = (now: number): void => {
     const dt = Math.min(Math.max((now - previous) / 1000, 1e-4), 0.1)
     previous = now
     fps += (1 / dt - fps) * 0.05
-    const nowSeconds = now / 1000
 
     const readings = readHands(now)
     const assigned = assignReadings(readings, slots)
-    driveSlot(slots[0], assigned[0], dt, nowSeconds)
-    driveSlot(slots[1], assigned[1], dt, nowSeconds)
-    checkBinaryContact(nowSeconds)
+    driveSlot(slots[0], assigned[0], dt)
+    driveSlot(slots[1], assigned[1], dt)
 
-    view.update(
-      slots,
-      { x: burst.x, y: burst.y, age: nowSeconds - burst.firedAt, strength: burst.strength },
-      nowSeconds,
-    )
+    const anyPeace = slots.some((slot) => slot.bound && slot.pose === "peace")
+    timeScale += ((anyPeace ? PEACE_TIME_SCALE : 1) - timeScale) * TIME_SCALE_SMOOTHING
+    warpedTime += dt * timeScale
+
+    view.update(slots, warpedTime)
     view.render()
-    hud.update(fps, slots[0].mass + slots[1].mass, readings.length)
+    const status = statusFor(slots[0], assigned[0]) || statusFor(slots[1], assigned[1])
+    hud.update(fps, slots[0].mass + slots[1].mass, readings.length, status)
     requestAnimationFrame(frame)
   }
 
