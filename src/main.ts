@@ -153,7 +153,7 @@ async function boot(): Promise<void> {
     return `TIME ${(1 - timeDial * 0.95).toFixed(2)}X`
   }
 
-  const driveHole = (reading: HandReading | undefined, dt: number): void => {
+  const driveHole = (reading: HandReading | undefined, dt: number, massLocked: boolean): void => {
     if (!reading) {
       hole.x = clamp(hole.x + hole.vx * dt, -0.2, 1.2)
       hole.y = clamp(hole.y + hole.vy * dt, -0.2, 1.2)
@@ -170,7 +170,7 @@ async function boot(): Promise<void> {
     hole.vx += ((hole.x - previousX) / dt - hole.vx) * VELOCITY_SMOOTHING
     hole.vy += ((hole.y - previousY) / dt - hole.vy) * VELOCITY_SMOOTHING
     hole.tilt = angleLerp(hole.tilt, reading.tilt, SMOOTHING)
-    hole.mass += (reading.pinchMass - hole.mass) * SMOOTHING
+    if (!massLocked) hole.mass += (reading.pinchMass - hole.mass) * SMOOTHING
   }
 
   const driveControl = (
@@ -234,7 +234,8 @@ async function boot(): Promise<void> {
     const assigned = assignReadings(readings, trackers)
     touchTracker(trackers[0], assigned[0], dt)
     touchTracker(trackers[1], assigned[1], dt)
-    driveHole(assigned[0], dt)
+    const collapsing = assigned[1] !== undefined && trackers[1].pose === "fist"
+    driveHole(assigned[0], dt, collapsing)
     const control = driveControl(trackers[1], assigned[1], dt)
 
     timeScale += (1 - timeDial * 0.95 - timeScale) * TIME_SCALE_SMOOTHING
