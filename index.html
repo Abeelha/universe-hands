@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EVENT HORIZON</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      #view {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+      #hud {
+        position: fixed;
+        left: 18px;
+        bottom: 16px;
+        font-family: "Cascadia Mono", "JetBrains Mono", "IBM Plex Mono", Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.7;
+        letter-spacing: 0.14em;
+        color: rgba(190, 225, 235, 0.85);
+        white-space: pre;
+        text-shadow: 0 0 8px rgba(80, 200, 220, 0.35), 0 1px 2px rgba(0, 0, 0, 0.9);
+        pointer-events: none;
+        user-select: none;
+      }
+      #hud::before {
+        content: "";
+        position: absolute;
+        left: -10px;
+        top: 4px;
+        bottom: 4px;
+        width: 2px;
+        background: linear-gradient(rgba(120, 220, 240, 0.7), rgba(120, 220, 240, 0.05));
+      }
+      .hint {
+        animation: pulse 1.6s ease-in-out infinite;
+        color: rgba(255, 190, 120, 0.9);
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.25;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="hud">INITIALIZING...</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
