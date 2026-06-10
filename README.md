@@ -6,7 +6,6 @@ Your palm carries the singularity. Your pinch feeds it. Your room bends around i
 
 ![demo](docs/demo.gif)
 
-> drop a recording at `docs/demo.gif` (ShareX > gif region capture works great)
 
 ## What it does
 
