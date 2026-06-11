@@ -4,11 +4,11 @@ Hand-driven visual instruments on your live webcam. Pick a visual from the hub, 
 
 ## Demos
 
-Click to watch (with audio):
+Click a preview for the full video with audio:
 
 | EVENT HORIZON | LIVING INK |
 |---|---|
-| [![EVENT HORIZON demo](examples/blackhole.jpg)](examples/blackhole.mp4) | [![LIVING INK demo](examples/ink-tattoo.jpg)](examples/ink-tattoo.mp4) |
+| [![EVENT HORIZON demo](examples/blackhole-preview.gif)](examples/blackhole.mp4) | [![LIVING INK demo](examples/ink-tattoo-preview.gif)](examples/ink-tattoo.mp4) |
 
 ## Visuals
 
