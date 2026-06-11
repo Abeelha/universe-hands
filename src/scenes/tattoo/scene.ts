@@ -5,6 +5,7 @@ import { createArmTracker, type ArmTracker, type ArmReading } from "../../core/p
 import type { Scene, SceneContext } from "../../core/scene"
 import type { HandReading } from "../../core/hands"
 import { drawTech, drawNature, type Forearm } from "./painters"
+import { createStabilizer, type StabilizeTarget } from "./stabilize"
 import gradeFragment from "./grade.frag.glsl?raw"
 
 const ARM_MATCH_RADIUS = 0.28
@@ -17,6 +18,7 @@ export function createTattooScene(context: SceneContext): Scene {
     uniforms: {},
   })
   const c2d = createCanvas2d(context.overlay)
+  const stabilizer = createStabilizer()
   let swapped = false
   let armTracker: ArmTracker | null = null
   let disposed = false
@@ -57,7 +59,7 @@ export function createTattooScene(context: SceneContext): Scene {
   }
 
   return {
-    frame: (readings, _dt, nowSeconds, fps) => {
+    frame: (readings, dt, nowSeconds, fps) => {
       pipeline.render()
       c2d.clear()
       const arms = armTracker ? armTracker.read(nowSeconds * 1000) : []
@@ -65,12 +67,23 @@ export function createTattooScene(context: SceneContext): Scene {
         x: p.x * c2d.width(),
         y: p.y * c2d.height(),
       })
-      for (const reading of readings) {
-        const points = reading.points.map(px)
-        const forearm = forearmFor(reading, arms)
-        if (isTech(reading)) drawTech(c2d, points, forearm, nowSeconds)
-        else drawNature(c2d, points, forearm, nowSeconds)
+      const targetFor = (reading: HandReading | undefined): StabilizeTarget | null =>
+        reading ? { points: reading.points.map(px), forearm: forearmFor(reading, arms) } : null
+      const tech = stabilizer.update("tech", targetFor(readings.find(isTech)), dt)
+      const nature = stabilizer.update(
+        "nature",
+        targetFor(readings.find((reading) => !isTech(reading))),
+        dt,
+      )
+      if (tech) {
+        c2d.ctx.globalAlpha = tech.fade
+        drawTech(c2d, tech.points, tech.forearm, nowSeconds)
       }
+      if (nature) {
+        c2d.ctx.globalAlpha = nature.fade
+        drawNature(c2d, nature.points, nature.forearm, nowSeconds)
+      }
+      c2d.ctx.globalAlpha = 1
 
       const techSide = swapped ? "RIGHT" : "LEFT"
       const natureSide = swapped ? "LEFT" : "RIGHT"

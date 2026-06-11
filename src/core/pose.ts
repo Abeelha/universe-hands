@@ -3,6 +3,7 @@ import { FilesetResolver, PoseLandmarker, type NormalizedLandmark } from "@media
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"
+const DETECT_INTERVAL_MS = 66
 const LEFT_ELBOW = 13
 const RIGHT_ELBOW = 14
 const LEFT_WRIST = 15
@@ -36,7 +37,7 @@ export async function createArmTracker(video: HTMLVideoElement): Promise<ArmTrac
   let lastArms: ArmReading[] = []
   return {
     read: (timestampMs) => {
-      if (video.readyState < 2 || timestampMs <= lastTimestamp) return lastArms
+      if (video.readyState < 2 || timestampMs - lastTimestamp < DETECT_INTERVAL_MS) return lastArms
       lastTimestamp = timestampMs
       const result = landmarker.detectForVideo(video, timestampMs)
       const pose = result.landmarks.length > 0 ? result.landmarks[0] : undefined

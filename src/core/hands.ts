@@ -151,6 +151,8 @@ export async function createHandTracker(video: HTMLVideoElement): Promise<HandRe
     baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
     runningMode: "VIDEO",
     numHands: 2,
+    minHandPresenceConfidence: 0.35,
+    minTrackingConfidence: 0.35,
   })
   let lastTimestamp = -1
   let lastReadings: HandReading[] = []
