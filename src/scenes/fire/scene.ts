@@ -11,6 +11,11 @@ const POWER_SMOOTHING = 0.18
 const BEND_SMOOTHING = 0.2
 const VELOCITY_SMOOTHING = 0.3
 const SPARKS_PER_HAND = 32
+const MAX_FIREBALLS = 6
+const FLICK_OPENNESS_RATE = 6
+const FLICK_COOLDOWN_SECONDS = 0.35
+const FIREBALL_SPEED = 0.95
+const FIREBALL_LIFETIME = 1.5
 
 type FireSource = {
   x: number
@@ -19,6 +24,17 @@ type FireSource = {
   power: number
   bend: number
   unseenFor: number
+  lastOpenness: number
+  lastShotAt: number
+}
+
+type Fireball = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  age: number
+  power: number
 }
 
 const createSource = (): FireSource => ({
@@ -28,6 +44,8 @@ const createSource = (): FireSource => ({
   power: 0,
   bend: 0,
   unseenFor: 1e9,
+  lastOpenness: 0,
+  lastShotAt: -1e9,
 })
 
 const hashN = (n: number): number => {
@@ -62,23 +80,46 @@ export function createFireScene(context: SceneContext): Scene {
   const uHands = { value: [new THREE.Vector2(0.5, 0.4), new THREE.Vector2(0.5, 0.4)] }
   const uPowers = { value: [0, 0] }
   const uBends = { value: [0, 0] }
+  const uBalls = {
+    value: Array.from({ length: MAX_FIREBALLS }, () => new THREE.Vector4(0, 0, 0, 0)),
+  }
   const uTime = { value: 0 }
 
   const pipeline = createVideoPipeline({
     renderer: context.renderer,
     video: context.video,
     fragmentShader: fireFragment,
-    uniforms: { uHands, uPowers, uBends, uTime },
+    uniforms: { uHands, uPowers, uBends, uBalls, uTime },
     bloom: { strength: 0.5, radius: 0.6, threshold: 1.0 },
   })
   const c2d = createCanvas2d(context.overlay)
   const sources: [FireSource, FireSource] = [createSource(), createSource()]
+  const fireballs: Fireball[] = []
 
-  const driveSource = (source: FireSource, reading: HandReading | undefined, dt: number): void => {
+  const shootFireball = (source: FireSource, reading: HandReading, nowSeconds: number): void => {
+    source.lastShotAt = nowSeconds
+    if (fireballs.length >= MAX_FIREBALLS) fireballs.shift()
+    fireballs.push({
+      x: source.x + reading.jetDir.x * 0.04,
+      y: source.y + reading.jetDir.y * 0.04,
+      vx: reading.jetDir.x * FIREBALL_SPEED,
+      vy: reading.jetDir.y * FIREBALL_SPEED + 0.08,
+      age: 0,
+      power: 1,
+    })
+  }
+
+  const driveSource = (
+    source: FireSource,
+    reading: HandReading | undefined,
+    dt: number,
+    nowSeconds: number,
+  ): void => {
     if (!reading) {
       source.unseenFor += dt
       source.power += (0 - source.power) * POWER_SMOOTHING
       source.bend += (0 - source.bend) * BEND_SMOOTHING
+      source.lastOpenness = 0
       return
     }
     source.unseenFor = 0
@@ -89,6 +130,67 @@ export function createFireScene(context: SceneContext): Scene {
     const bendTarget = Math.min(0.45, Math.max(-0.45, -source.vx * 0.22))
     source.bend += (bendTarget - source.bend) * BEND_SMOOTHING
     source.power += (reading.openness - source.power) * POWER_SMOOTHING
+
+    const opennessRate = (reading.openness - source.lastOpenness) / Math.max(dt, 1e-4)
+    if (
+      opennessRate > FLICK_OPENNESS_RATE &&
+      reading.openness >= 0.75 &&
+      source.lastOpenness <= 0.5 &&
+      nowSeconds - source.lastShotAt > FLICK_COOLDOWN_SECONDS
+    ) {
+      shootFireball(source, reading, nowSeconds)
+    }
+    source.lastOpenness = reading.openness
+  }
+
+  const driveFireballs = (dt: number): void => {
+    const aspect = window.innerWidth / Math.max(window.innerHeight, 1)
+    for (let i = fireballs.length - 1; i >= 0; i--) {
+      const ball = fireballs[i]
+      ball.age += dt
+      ball.x += ball.vx * dt
+      ball.y += ball.vy * dt
+      ball.vy += 0.12 * dt
+      ball.vx *= Math.exp(-0.35 * dt)
+      ball.power = Math.min(1, Math.max(0, 1 - (ball.age - FIREBALL_LIFETIME + 0.45) / 0.45))
+      const gone =
+        ball.age > FIREBALL_LIFETIME || ball.x < -0.3 || ball.x > 1.3 || ball.y < -0.3 || ball.y > 1.3
+      if (gone) fireballs.splice(i, 1)
+    }
+    for (let slot = 0; slot < MAX_FIREBALLS; slot++) {
+      const ball = fireballs[slot]
+      if (ball) {
+        uBalls.value[slot].set(ball.x, ball.y, ball.power, Math.atan2(ball.vy, ball.vx * aspect))
+      } else {
+        uBalls.value[slot].set(0, 0, 0, 0)
+      }
+    }
+  }
+
+  const drawFireballTrails = (now: number): void => {
+    if (fireballs.length === 0) return
+    const ctx = c2d.ctx
+    const width = c2d.width()
+    const height = c2d.height()
+    ctx.save()
+    ctx.globalCompositeOperation = "lighter"
+    ctx.shadowColor = "rgba(255, 140, 30, 0.9)"
+    ctx.shadowBlur = 8
+    for (let b = 0; b < fireballs.length; b++) {
+      const ball = fireballs[b]
+      for (let i = 0; i < 8; i++) {
+        const frac = (i + 1) / 9
+        const px = (ball.x - ball.vx * frac * 0.14) * width + Math.sin(now * 7 + i * 2.4 + b) * 4
+        const py = (1 - (ball.y - ball.vy * frac * 0.14)) * height + Math.cos(now * 6 + i * 1.9) * 3
+        const alpha = ball.power * (1 - frac) * 0.7
+        ctx.fillStyle =
+          i % 3 === 0 ? `rgba(255, 235, 160, ${alpha.toFixed(3)})` : `rgba(255, 130, 35, ${alpha.toFixed(3)})`
+        ctx.beginPath()
+        ctx.arc(px, py, 2.4 * (1 - frac) + 0.8, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    ctx.restore()
   }
 
   const drawSparks = (source: FireSource, sourceIndex: number, now: number): void => {
@@ -131,8 +233,9 @@ export function createFireScene(context: SceneContext): Scene {
   return {
     frame: (readings, dt, nowSeconds, fps) => {
       const assigned = assignReadings(readings, sources)
-      driveSource(sources[0], assigned[0], dt)
-      driveSource(sources[1], assigned[1], dt)
+      driveSource(sources[0], assigned[0], dt, nowSeconds)
+      driveSource(sources[1], assigned[1], dt, nowSeconds)
+      driveFireballs(dt)
 
       for (let index = 0; index < 2; index++) {
         const source = sources[index]
@@ -146,11 +249,12 @@ export function createFireScene(context: SceneContext): Scene {
       c2d.clear()
       drawSparks(sources[0], 0, nowSeconds)
       drawSparks(sources[1], 1, nowSeconds)
+      drawFireballTrails(nowSeconds)
 
       const totalPower = sources[0].power + sources[1].power
       const lines = [fpsLine(fps), `POWER ${totalPower.toFixed(2)}`]
       if (readings.length === 0) lines.push(`<span class="hint">SHOW HAND TO CAMERA</span>`)
-      lines.push(`<span class="dim">OPEN HAND BURN / FIST SNUFF / ESC HUB</span>`)
+      lines.push(`<span class="dim">OPEN HAND BURN / FIST SNUFF / FLICK OPEN = FIREBALL / ESC HUB</span>`)
       context.hud.set(lines)
     },
     resize: () => {

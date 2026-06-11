@@ -80,7 +80,12 @@ export function createVideoPipeline(options: {
   resize()
 
   return {
-    render: () => composer.render(),
+    render: () => {
+      if (video.videoWidth > 0) {
+        uniforms.uVideoAspect.value = video.videoWidth / video.videoHeight
+      }
+      composer.render()
+    },
     resize,
     dispose: () => {
       composer.dispose()

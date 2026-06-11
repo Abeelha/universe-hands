@@ -1,4 +1,4 @@
-import { startCamera } from "./core/camera"
+import { startCamera, switchCamera, type CameraFacing } from "./core/camera"
 import { createHandTracker } from "./core/hands"
 import { createHud } from "./core/hud"
 import { createRenderer } from "./core/post"
@@ -55,12 +55,16 @@ async function boot(): Promise<void> {
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
   }
 
+  const flipButton = document.querySelector<HTMLButtonElement>("#flip")
+  const exitButton = document.querySelector<HTMLButtonElement>("#exit")
+
   const closeScene = (): void => {
     if (!active) return
     active.dispose()
     active = null
     clearOverlay()
     renderer.clear(true, true, true)
+    exitButton?.classList.add("hidden")
     hud.message("SELECT A VISUAL")
     hub.show()
   }
@@ -71,11 +75,23 @@ async function boot(): Promise<void> {
     active?.dispose()
     clearOverlay()
     hub.hide()
+    exitButton?.classList.remove("hidden")
     active = entry.create(context)
   }
 
   const hub = createHub(hubRoot, SCENES, select)
   hud.message("SELECT A VISUAL")
+
+  let facing: CameraFacing = "user"
+  flipButton?.addEventListener("click", () => {
+    const next: CameraFacing = facing === "user" ? "environment" : "user"
+    switchCamera(video, next)
+      .then(() => {
+        facing = next
+      })
+      .catch(() => undefined)
+  })
+  exitButton?.addEventListener("click", closeScene)
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeScene()

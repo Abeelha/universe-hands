@@ -2,6 +2,7 @@ uniform sampler2D uVideo;
 uniform vec2 uHands[2];
 uniform float uPowers[2];
 uniform float uBends[2];
+uniform vec4 uBalls[6];
 uniform float uTime;
 uniform float uAspect;
 uniform float uVideoAspect;
@@ -87,6 +88,22 @@ void main() {
     below.y -= 0.1;
     risenHeat += flameHeat(below, uPowers[i], uBends[i]);
     spill += vec3(1.0, 0.5, 0.18) * exp(-dot(rel, rel) * 26.0) * uPowers[i] * 0.14;
+  }
+
+  for (int b = 0; b < 6; b++) {
+    float ballPower = uBalls[b].z;
+    if (ballPower < 0.02) continue;
+    vec2 rel = vec2((uv.x - uBalls[b].x) * uAspect, uv.y - uBalls[b].y);
+    float ca = cos(uBalls[b].w);
+    float sa = sin(uBalls[b].w);
+    vec2 local = vec2(ca * rel.x + sa * rel.y, -sa * rel.x + ca * rel.y);
+    local.x *= 0.6;
+    float r2 = dot(local, local);
+    float size = 0.032 + 0.02 * ballPower;
+    float core = exp(-r2 / (size * size));
+    float flick = 0.7 + 0.6 * valueNoise(vec2(uTime * 9.0 + float(b) * 7.3, r2 * 60.0));
+    heat += core * ballPower * 1.4 * flick;
+    spill += vec3(1.0, 0.5, 0.18) * exp(-dot(rel, rel) * 40.0) * ballPower * 0.1;
   }
 
   float haze = clamp(heat * 0.5 + risenHeat, 0.0, 1.5) * 0.014;
