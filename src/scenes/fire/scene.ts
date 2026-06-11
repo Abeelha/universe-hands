@@ -10,7 +10,7 @@ const POSITION_SMOOTHING = 0.25
 const POWER_SMOOTHING = 0.18
 const BEND_SMOOTHING = 0.2
 const VELOCITY_SMOOTHING = 0.3
-const SPARKS_PER_HAND = 24
+const SPARKS_PER_HAND = 32
 
 type FireSource = {
   x: number
@@ -98,25 +98,28 @@ export function createFireScene(context: SceneContext): Scene {
     const height = c2d.height()
     const baseX = source.x * width
     const baseY = (1 - source.y) * height
-    const rise = (0.14 + 0.42 * source.power) * height
+    const rise = (0.12 + 0.3 * source.power) * height
 
     ctx.save()
     ctx.globalCompositeOperation = "lighter"
     ctx.shadowColor = "rgba(255, 140, 30, 0.9)"
     ctx.shadowBlur = 6
+    ctx.lineCap = "round"
     for (let i = 0; i < SPARKS_PER_HAND; i++) {
       const seed = sourceIndex * 100 + i
-      const speed = 0.35 + 0.5 * hashN(seed + 7.1)
+      const speed = 0.35 + 0.55 * hashN(seed + 7.1)
       const frac = (now * speed + hashN(seed * 2.3)) % 1
-      const spread = (hashN(seed * 3.7) - 0.5) * 0.07 * width * source.power
-      const px = baseX + spread + Math.sin(now * 2.5 + i * 1.7) * 7 * frac
+      const spread = (hashN(seed * 3.7) - 0.5) * (0.04 + 0.08 * frac) * width * source.power
+      const px = baseX + spread + Math.sin(now * 2.5 + i * 1.7) * 9 * frac
       const py = baseY - frac * rise
       const alpha = (1 - frac) * source.power * (0.4 + 0.6 * hashN(seed + 13.9))
-      ctx.fillStyle =
+      ctx.strokeStyle =
         i % 3 === 0 ? `rgba(255, 230, 140, ${alpha.toFixed(3)})` : `rgba(255, 140, 40, ${alpha.toFixed(3)})`
+      ctx.lineWidth = 1 + 1.6 * hashN(seed + 21.4)
       ctx.beginPath()
-      ctx.arc(px, py, 1.6, 0, Math.PI * 2)
-      ctx.fill()
+      ctx.moveTo(px, py + 4 + 9 * frac)
+      ctx.lineTo(px, py)
+      ctx.stroke()
     }
     ctx.restore()
   }
