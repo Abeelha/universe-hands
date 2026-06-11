@@ -82,7 +82,7 @@ Single shader pass + bloom per scene, pixel ratio capped at 2. 165 fps at 1440p 
 
 ## Privacy
 
-Everything runs client-side in your browser. Webcam frames are processed locally by MediaPipe WASM, nothing is uploaded anywhere, no analytics, no telemetry, no tracking of any kind. The only network requests are the one-time CDN fetches of the MediaPipe runtime and models at load. Open source and free.
+Everything runs client-side in your browser. Webcam frames are processed locally by MediaPipe WASM, nothing is uploaded anywhere, no data mining, no cookies. The hosted site counts anonymous visits with [Vercel Web Analytics](https://vercel.com/docs/analytics) (cookieless, no cross-site tracking); self-hosted builds have zero analytics. The only other network requests are the one-time CDN fetches of the MediaPipe runtime and models at load. Open source and free.
 
 ## Deploy
 

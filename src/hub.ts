@@ -29,7 +29,8 @@ export function createHub(
       <p class="hub-foot">CLICK OR PRESS 1-${entries.length} / ESC RETURNS HERE</p>
       <div class="hub-credits">
         <a href="https://github.com/Abeelha/universe-hands" target="_blank" rel="noopener">GITHUB.COM/ABEELHA/UNIVERSE-HANDS</a>
-        <span>OPEN SOURCE / FREE / NO TELEMETRY / NO TRACKING</span>
+        <span>OPEN SOURCE / FREE / NO COOKIES / NO DATA MINING</span>
+        <span>ANONYMOUS VISIT COUNT ONLY (VERCEL ANALYTICS)</span>
         <span>YOUR CAMERA NEVER LEAVES YOUR DEVICE, ALL PROCESSING IS LOCAL</span>
       </div>
     </div>`
