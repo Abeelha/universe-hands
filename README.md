@@ -2,7 +2,15 @@
 
 Hand-driven visual instruments on your live webcam. Pick a visual from the hub, control it with your hands, no mouse, no UI chrome.
 
-![demo](docs/demo.gif)
+## Demos
+
+EVENT HORIZON:
+
+https://github.com/Abeelha/universe-hands/raw/main/examples/blackhole.mp4
+
+LIVING INK:
+
+https://github.com/Abeelha/universe-hands/raw/main/examples/ink-tattoo.mp4
 
 ## Visuals
 
