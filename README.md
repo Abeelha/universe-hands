@@ -72,7 +72,15 @@ Each scene is a factory receiving the shared renderer, video, overlay canvas and
 
 ## Performance
 
-Single shader pass + bloom per scene, pixel ratio capped at 2. 165 fps at 1440p on an RX 9070 XT.
+Single shader pass + bloom per scene, pixel ratio capped at 2. 165 fps at 1440p on an RX 9070 XT (tattoo scene runs two MediaPipe models, expect lower).
+
+## Privacy
+
+Everything runs client-side in your browser. Webcam frames are processed locally by MediaPipe WASM, nothing is uploaded anywhere, no analytics, no telemetry, no tracking of any kind. The only network requests are the one-time CDN fetches of the MediaPipe runtime and models at load. Open source and free.
+
+## Deploy
+
+Static site, no backend. `npm run build` outputs `dist/`. On Vercel: import the repo, framework preset Vite, deploy. Camera access requires HTTPS, which Vercel serves by default.
 
 ## Tags
 

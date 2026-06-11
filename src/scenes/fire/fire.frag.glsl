@@ -46,28 +46,33 @@ float flameHeat(vec2 rel, float power, float bend) {
   if (power < 0.02 || rel.y < -0.25 || rel.y > 0.95 || abs(rel.x) > 0.6) return 0.0;
   float rise = 0.14 + 0.38 * power;
   float t = clamp(rel.y / rise, 0.0, 1.2);
-  float sway = (valueNoise(vec2(uTime * 1.8, rel.y * 6.0)) - 0.5) * 0.26 * t;
-  float cx = rel.x - bend * rel.y - sway;
-  float width = (0.035 + 0.055 * power) * (1.0 - 0.4 * min(t, 1.0)) + 0.01;
-  float xn = cx / width;
+  float cx = rel.x - bend * rel.y;
+  vec2 q = vec2(cx * 5.0, rel.y * 3.2 - uTime * 2.4);
+  vec2 warp = vec2(
+    fbm(q * 1.3 + vec2(0.0, uTime * 0.4)),
+    fbm(q * 1.3 + vec2(5.2, -uTime * 0.3))
+  ) - 0.5;
+  float body = fbm(q + warp * 1.9);
+  float width = (0.035 + 0.055 * power) * (1.0 - 0.35 * min(t, 1.0)) + 0.01;
+  width *= 1.0 + warp.x * 0.7;
+  float xn = cx / max(width, 0.008);
   float lateral = exp(-xn * xn);
-  float body = fbm(vec2(cx * 5.5, rel.y * 3.5 - uTime * 2.7));
-  float ragged = lateral * (1.15 - t) - (1.0 - body) * 0.5;
-  float column = clamp(ragged * 2.4, 0.0, 1.4);
-  column *= 1.0 - smoothstep(0.7, 1.1, t);
-  column *= 0.85 + 0.3 * valueNoise(vec2(uTime * 5.0, t * 3.0));
-  column *= smoothstep(-0.16, -0.03, rel.y);
-  float glow = exp(-dot(rel, rel) * 240.0) * 0.5;
+  float ragged = lateral * (1.1 - t) - (1.0 - body) * 0.55;
+  float column = clamp(ragged * 2.6, 0.0, 1.3);
+  column *= 1.0 - smoothstep(0.65, 1.1, t);
+  column *= smoothstep(-0.14, -0.02, rel.y);
+  column *= 0.8 + 0.4 * valueNoise(vec2(uTime * 6.0, t * 4.0));
+  float glow = exp(-dot(rel, rel) * 320.0) * 0.35;
   return (column + glow) * power;
 }
 
 vec3 fireColor(float heat) {
   vec3 c = vec3(0.0);
-  c = mix(c, vec3(0.55, 0.04, 0.0), smoothstep(0.0, 0.25, heat));
-  c = mix(c, vec3(1.0, 0.42, 0.04), smoothstep(0.25, 0.6, heat));
-  c = mix(c, vec3(1.0, 0.85, 0.4), smoothstep(0.6, 0.95, heat));
-  c = mix(c, vec3(1.0, 0.98, 0.9), smoothstep(1.0, 1.35, heat));
-  return c * (0.8 + 0.35 * heat);
+  c = mix(c, vec3(0.5, 0.03, 0.0), smoothstep(0.0, 0.3, heat));
+  c = mix(c, vec3(1.0, 0.38, 0.03), smoothstep(0.3, 0.65, heat));
+  c = mix(c, vec3(1.0, 0.8, 0.3), smoothstep(0.65, 1.0, heat));
+  c = mix(c, vec3(1.0, 0.97, 0.88), smoothstep(1.1, 1.45, heat));
+  return c * (0.75 + 0.3 * heat);
 }
 
 void main() {
@@ -100,5 +105,5 @@ void main() {
   vec3 flame = fireColor(heat);
   flame /= 1.0 + 0.35 * flame;
 
-  gl_FragColor = vec4(vid + flame, 1.0);
+  gl_FragColor = vec4(vid + flame * 0.9, 1.0);
 }

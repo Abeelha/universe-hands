@@ -27,6 +27,11 @@ export function createHub(
       <p class="hub-sub">HAND-DRIVEN VISUAL INSTRUMENTS</p>
       <div class="hub-list">${items}</div>
       <p class="hub-foot">CLICK OR PRESS 1-${entries.length} / ESC RETURNS HERE</p>
+      <div class="hub-credits">
+        <a href="https://github.com/Abeelha/universe-hands" target="_blank" rel="noopener">GITHUB.COM/ABEELHA/UNIVERSE-HANDS</a>
+        <span>OPEN SOURCE / FREE / NO TELEMETRY / NO TRACKING</span>
+        <span>YOUR CAMERA NEVER LEAVES YOUR DEVICE, ALL PROCESSING IS LOCAL</span>
+      </div>
     </div>`
 
   let isVisible = true

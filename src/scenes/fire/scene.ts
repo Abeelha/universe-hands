@@ -103,23 +103,27 @@ export function createFireScene(context: SceneContext): Scene {
     ctx.save()
     ctx.globalCompositeOperation = "lighter"
     ctx.shadowColor = "rgba(255, 140, 30, 0.9)"
-    ctx.shadowBlur = 6
-    ctx.lineCap = "round"
+    ctx.shadowBlur = 9
     for (let i = 0; i < SPARKS_PER_HAND; i++) {
       const seed = sourceIndex * 100 + i
-      const speed = 0.35 + 0.55 * hashN(seed + 7.1)
+      const speed = 0.3 + 0.45 * hashN(seed + 7.1)
       const frac = (now * speed + hashN(seed * 2.3)) % 1
-      const spread = (hashN(seed * 3.7) - 0.5) * (0.04 + 0.08 * frac) * width * source.power
-      const px = baseX + spread + Math.sin(now * 2.5 + i * 1.7) * 9 * frac
-      const py = baseY - frac * rise
-      const alpha = (1 - frac) * source.power * (0.4 + 0.6 * hashN(seed + 13.9))
-      ctx.strokeStyle =
-        i % 3 === 0 ? `rgba(255, 230, 140, ${alpha.toFixed(3)})` : `rgba(255, 140, 40, ${alpha.toFixed(3)})`
-      ctx.lineWidth = 1 + 1.6 * hashN(seed + 21.4)
+      const spawnOffset = (hashN(seed * 3.7) - 0.5) * 0.07 * width * source.power
+      const wanderAmp = (5 + 30 * frac) * (0.5 + hashN(seed + 17.2))
+      const wander =
+        Math.sin(now * 1.4 + seed * 9.0) * 0.6 + Math.sin(now * 2.9 + seed * 4.0) * 0.4
+      const px = baseX + spawnOffset + wander * wanderAmp
+      const py = baseY - frac * rise - Math.sin(now * 3.1 + seed) * 4
+      const radius = Math.max(0.5, (2.4 - 1.8 * frac) * (0.6 + 0.7 * hashN(seed + 21.4)))
+      const flicker = 0.55 + 0.45 * Math.sin(now * 6 + seed * 2.2)
+      const alpha = source.power * Math.pow(1 - frac, 1.5) * flicker
+      ctx.fillStyle =
+        i % 4 === 0
+          ? `rgba(255, 235, 160, ${alpha.toFixed(3)})`
+          : `rgba(255, 130, 35, ${alpha.toFixed(3)})`
       ctx.beginPath()
-      ctx.moveTo(px, py + 4 + 9 * frac)
-      ctx.lineTo(px, py)
-      ctx.stroke()
+      ctx.arc(px, py, radius, 0, Math.PI * 2)
+      ctx.fill()
     }
     ctx.restore()
   }
