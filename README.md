@@ -1,45 +1,43 @@
-# EVENT HORIZON
+# UNIVERSE HANDS
 
-Real-time gravitational lensing black hole over your live webcam, controlled entirely by your hands.
-
-Your palm carries the singularity. Your pinch feeds it. Your room bends around it.
+Hand-driven visual instruments on your live webcam. Pick a visual from the hub, control it with your hands, no mouse, no UI chrome.
 
 ![demo](docs/demo.gif)
 
+## Visuals
 
-## What it does
+### 01 EVENT HORIZON
 
-- Live webcam feed warped by a Schwarzschild-style lensing shader: light wraps around the event horizon, an Einstein ring forms, pixels near the horizon sample the far side of your room
-- Procedural accretion disk: fbm turbulence, Keplerian rotation (`w ~ r^-1.5`), blackbody gradient, Doppler beaming on the approaching side
-- Photon ring at 1.5 rs, chromatic aberration in the lensed region, hash starfield drifting into the hole, HDR bloom
-- MediaPipe hand tracking at camera framerate, GPU delegate, two-hand role system
+Gravitational lensing black hole. Your palm carries the singularity, your pinch feeds it, your room bends around it: light wraps the horizon, an Einstein ring forms, the accretion disk bends over the hole because it is computed in lensed coordinate space.
 
-## Controls
+Two hands, two jobs:
 
-Two hands, two jobs.
-
-### Hole hand (first hand seen)
-
-| input | effect |
+| hole hand (first seen) | effect |
 |---|---|
 | palm position | moves the singularity |
 | thumb + index pinch | mass: closed = max, open = shrinks away |
 | wrist roll | tilts the accretion disk |
 | flick + drop hand | hole keeps momentum, drifts and decays |
 
-### Control deck (second hand)
-
-| gesture | effect |
+| control deck (second hand) | effect |
 |---|---|
 | thumb + index pinch | DISK: accretion brightness dial |
 | thumb + middle pinch | LENS: warp power dial |
 | thumb + ring pinch | HUE: blackbody orange > quasar blue |
 | thumb + pinky pinch | TIME: bullet-time dial, 1.0x > 0.05x |
-| point (index only) | relativistic jet aimed by your finger |
+| point | relativistic jet aimed by your finger |
 | fist | collapse: the hole eats itself |
 | V sign held 0.5s | reset all dials |
 
-Dials latch: pinch to adjust, release and the value stays. A cyber overlay renders on the control hand: neon skeleton, arc gauges with live values, jet targeting ray, collapse warning rings.
+Dials latch like real knobs. A cyber overlay renders on the control hand: neon skeleton, arc gauges with live values, jet targeting ray.
+
+### 02 LIVING INK
+
+Tattoo augmentation. One arm gets a cybertech overlay (animated PCB traces, data packets, CPU node ring, pads on the fingertips), the other gets living flora (swaying vines, sprouting leaves, dotwork, fireflies, a slowly spinning galaxy on the forearm). Arms picked by handedness, `T` swaps if the mirror confuses it.
+
+### 03 PYROKINESIS
+
+Fire from your palms. Open hand burns, fist snuffs it out, moving fast bends the plume behind your hand. Heat haze warps the video above the flames, embers rise off your hands. Works with both hands at once.
 
 ## Run it
 
@@ -48,22 +46,33 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173, allow camera, show your hand.
+Open http://localhost:5173, allow camera, pick a visual (click or 1-3), ESC returns to the hub.
 
 ## Stack
 
 - Vite + TypeScript (strict)
-- Three.js: single fullscreen quad + custom GLSL fragment shader, UnrealBloom post pass
-- @mediapipe/tasks-vision HandLandmarker (GPU delegate, VIDEO mode, 21 landmarks per hand)
-- 2D canvas overlay for the hand HUD, zero UI frameworks, zero other deps
+- Three.js: single fullscreen quad + custom GLSL fragment shader per scene, UnrealBloom post pass
+- @mediapipe/tasks-vision HandLandmarker (GPU delegate, VIDEO mode, 21 landmarks, handedness)
+- 2D canvas overlays for hand HUDs and particles, zero UI frameworks, zero other deps
 
-## How the lensing works
+## Architecture
 
-Per fragment: radial deflection toward the hole proportional to `rs^2 / r`, allowed to exceed `r` near the horizon so the sample coordinate crosses to the opposite side of the hole, which is what mirrors the background into an Einstein ring. The accretion disk is computed in the *displaced* coordinate space, so the disk itself bends over the horizon. Horizon black always wins.
+```
+src/
+  core/      camera, hand tracking, hud, render pipeline, 2d overlay
+  scenes/
+    blackhole/   lensing shader + control deck + cyber overlay
+    tattoo/      grade shader + circuit/flora painters
+    fire/        flame shader + spark particles
+  hub.ts     scene picker
+  main.ts    boot + shared frame loop
+```
+
+Each scene is a factory receiving the shared renderer, video, overlay canvas and HUD. Camera and hand tracker boot once; scenes mount and dispose cleanly.
 
 ## Performance
 
-Single shader pass + bloom. Pixel ratio capped at 2. Runs 165 fps at 1440p on an RX 9070 XT; anything with a working WebGL2 context should hold 60.
+Single shader pass + bloom per scene, pixel ratio capped at 2. 165 fps at 1440p on an RX 9070 XT.
 
 ## Tags
 

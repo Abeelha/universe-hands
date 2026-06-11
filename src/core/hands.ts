@@ -15,6 +15,7 @@ const KNOB_ENGAGE_RATIO = 0.45
 
 export type KnobFinger = (typeof KNOB_CHANNELS)[number]
 export type HandPose = "neutral" | "point" | "peace" | "fist"
+export type Handedness = "left" | "right" | "unknown"
 
 export type HandReading = {
   palm: { x: number; y: number }
@@ -24,6 +25,8 @@ export type HandReading = {
   knob: { finger: KnobFinger; tightness: number } | null
   pinchMass: number
   jetDir: { x: number; y: number }
+  handedness: Handedness
+  openness: number
 }
 
 export type HandReader = (timestampMs: number) => HandReading[]
@@ -77,6 +80,14 @@ function detectPose(landmarks: NormalizedLandmark[]): HandPose {
   return "neutral"
 }
 
+function countExtended(landmarks: NormalizedLandmark[]): number {
+  let count = 0
+  for (const finger of KNOB_CHANNELS) {
+    if (isExtended(landmarks, finger)) count++
+  }
+  return count
+}
+
 function detectKnob(
   landmarks: NormalizedLandmark[],
   scale: number,
@@ -119,7 +130,7 @@ function jetDirection(landmarks: NormalizedLandmark[]): { x: number; y: number }
   return { x: dx / length, y: dy / length }
 }
 
-function toReading(landmarks: NormalizedLandmark[]): HandReading {
+function toReading(landmarks: NormalizedLandmark[], label: string): HandReading {
   const scale = handScale(landmarks)
   return {
     palm: palmCenter(landmarks),
@@ -129,6 +140,8 @@ function toReading(landmarks: NormalizedLandmark[]): HandReading {
     knob: detectKnob(landmarks, scale),
     pinchMass: pinchMass(landmarks, scale),
     jetDir: jetDirection(landmarks),
+    handedness: label === "Left" ? "left" : label === "Right" ? "right" : "unknown",
+    openness: countExtended(landmarks) / 4,
   }
 }
 
@@ -145,7 +158,11 @@ export async function createHandTracker(video: HTMLVideoElement): Promise<HandRe
     if (video.readyState < 2 || timestampMs <= lastTimestamp) return lastReadings
     lastTimestamp = timestampMs
     const result = landmarker.detectForVideo(video, timestampMs)
-    lastReadings = result.landmarks.map(toReading)
+    lastReadings = result.landmarks.map((landmarks, index) => {
+      const categories = result.handedness[index]
+      const label = categories && categories.length > 0 ? categories[0].categoryName : ""
+      return toReading(landmarks, label)
+    })
     return lastReadings
   }
 }

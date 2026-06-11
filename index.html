@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EVENT HORIZON</title>
+    <title>UNIVERSE HANDS</title>
     <style>
       html,
       body {
@@ -37,6 +37,7 @@
         text-shadow: 0 0 8px rgba(80, 200, 220, 0.35), 0 1px 2px rgba(0, 0, 0, 0.9);
         pointer-events: none;
         user-select: none;
+        z-index: 5;
       }
       #hud::before {
         content: "";
@@ -62,12 +63,90 @@
           opacity: 0.25;
         }
       }
+      #hub {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at 50% 38%, #0a1018 0%, #000 78%);
+        z-index: 10;
+        font-family: "Cascadia Mono", "JetBrains Mono", "IBM Plex Mono", Consolas, monospace;
+      }
+      #hub.hidden {
+        display: none;
+      }
+      #hub::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          0deg,
+          rgba(255, 255, 255, 0.022) 0 1px,
+          transparent 1px 3px
+        );
+        pointer-events: none;
+      }
+      .hub-inner h1 {
+        margin: 0 0 6px;
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: 0.4em;
+        color: #dbf7ff;
+        text-shadow: 0 0 22px rgba(0, 220, 255, 0.55);
+      }
+      .hub-sub {
+        margin: 0 0 30px;
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        color: rgba(190, 225, 235, 0.42);
+      }
+      .hub-item {
+        display: grid;
+        grid-template-columns: 44px 230px 1fr;
+        align-items: baseline;
+        gap: 14px;
+        width: min(620px, 86vw);
+        margin: 0 0 10px;
+        padding: 15px 20px;
+        background: rgba(8, 16, 22, 0.55);
+        border: 1px solid rgba(110, 240, 255, 0.16);
+        border-left: 3px solid rgba(110, 240, 255, 0.5);
+        color: inherit;
+        font: 13px/1.4 inherit;
+        letter-spacing: 0.12em;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, transform 0.15s;
+      }
+      .hub-item:hover {
+        background: rgba(110, 240, 255, 0.09);
+        border-left-color: #ffc86e;
+        transform: translateX(5px);
+      }
+      .hub-num {
+        color: rgba(255, 200, 110, 0.85);
+      }
+      .hub-title {
+        color: #e8fcff;
+      }
+      .hub-desc {
+        color: rgba(190, 225, 235, 0.45);
+        font-size: 11px;
+      }
+      .hub-foot {
+        margin-top: 24px;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        color: rgba(190, 225, 235, 0.3);
+      }
     </style>
   </head>
   <body>
     <canvas id="view"></canvas>
     <canvas id="overlay"></canvas>
     <div id="hud">INITIALIZING...</div>
+    <div id="hub"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
