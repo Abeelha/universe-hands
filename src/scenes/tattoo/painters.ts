@@ -135,6 +135,110 @@ function tracePlates(ctx: CanvasRenderingContext2D, plates: Pt[][]): void {
   }
 }
 
+function hexCluster(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  count: number,
+  spread: number,
+  baseSize: number,
+  seed: number,
+  now: number,
+): void {
+  for (let i = 0; i < count; i++) {
+    const scatter = hashN(seed + i * 7.3) * Math.PI * 2
+    const dist = spread * (0.25 + 0.75 * hashN(seed + i * 3.1))
+    const bob = Math.sin(now * (0.6 + hashN(seed + i) * 0.7) + i * 2.2) * baseSize * 0.35
+    const px = cx + Math.cos(scatter) * dist
+    const py = cy + Math.sin(scatter) * dist * 0.8 + bob
+    const size = baseSize * (0.45 + 0.9 * hashN(seed + i * 11.7))
+    const pulse = 0.5 + 0.5 * Math.sin(now * 1.3 + i * 1.9 + seed)
+    ctx.fillStyle = `rgba(40, 170, 255, ${(0.14 + 0.2 * pulse).toFixed(3)})`
+    ctx.strokeStyle = `rgba(120, 220, 255, ${(0.5 + 0.45 * pulse).toFixed(3)})`
+    ctx.lineWidth = 2.4
+    ctx.beginPath()
+    hexPath(ctx, px, py, size)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+    if (i % 3 === 0) {
+      ctx.beginPath()
+      hexPath(ctx, px, py, size * 0.55)
+      ctx.closePath()
+      ctx.stroke()
+    }
+  }
+}
+
+function holoPanel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  seed: number,
+  now: number,
+): void {
+  const c = Math.min(w, h) * 0.18
+  ctx.beginPath()
+  ctx.moveTo(x + c, y)
+  ctx.lineTo(x + w, y)
+  ctx.lineTo(x + w, y + h - c)
+  ctx.lineTo(x + w - c, y + h)
+  ctx.lineTo(x, y + h)
+  ctx.lineTo(x, y + c)
+  ctx.closePath()
+  ctx.fillStyle = "rgba(0, 30, 44, 0.5)"
+  ctx.fill()
+  ctx.strokeStyle = "rgba(90, 240, 255, 0.85)"
+  ctx.lineWidth = 2.2
+  ctx.stroke()
+  ctx.fillStyle = "rgba(90, 240, 255, 0.8)"
+  ctx.fillRect(x + 5, y + 5, w * 0.45, 4)
+  ctx.lineWidth = 2.2
+  ctx.strokeStyle = "rgba(90, 240, 255, 0.55)"
+  for (let row = 0; row < 4; row++) {
+    const ry = y + h * 0.32 + row * h * 0.16
+    const jitter = hashN(seed + row * 3.7 + Math.floor(now * (1.4 + hashN(seed + row))))
+    ctx.beginPath()
+    ctx.moveTo(x + 7, ry)
+    ctx.lineTo(x + 7 + (w * 0.62 - 14) * (0.3 + 0.7 * jitter), ry)
+    ctx.stroke()
+  }
+  const gx = x + w * 0.78
+  const gy = y + h * 0.45
+  ctx.beginPath()
+  ctx.arc(gx, gy, h * 0.2, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.strokeStyle = "rgba(190, 255, 255, 0.95)"
+  ctx.beginPath()
+  ctx.arc(gx, gy, h * 0.2, now * 1.7 + seed, now * 1.7 + seed + Math.PI * 1.2)
+  ctx.stroke()
+}
+
+function haloRings(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  count: number,
+  handLen: number,
+  seed: number,
+  now: number,
+): void {
+  ctx.save()
+  ctx.strokeStyle = "rgba(80, 230, 255, 0.55)"
+  for (let r = 0; r < count; r++) {
+    const radius = handLen * (0.85 + r * 0.32)
+    ctx.lineWidth = 2.6 - r * 0.5
+    ctx.setLineDash([radius * 0.5, radius * 0.28])
+    ctx.lineDashOffset = now * 30 * (r % 2 === 0 ? 1 : -1) + seed
+    ctx.beginPath()
+    ctx.ellipse(x, 0, radius * 0.32, radius, 0, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
 export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: number): void {
   const frame = armFrame(points, forearm)
   if (!frame) return
@@ -150,6 +254,9 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
   ctx.save()
   ctx.translate(wrist.x, wrist.y)
   ctx.rotate(angle)
+
+  haloRings(ctx, armLen * 0.14, 3, handLen, 2.3, now)
+  haloRings(ctx, armLen * 0.86, 2, handLen, 7.9, now)
 
   const plates = buildPlates(handLen, armLen)
   tracePlates(ctx, plates)
@@ -295,6 +402,49 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
       ctx.closePath()
       ctx.stroke()
     }
+  }
+
+  const clusterX = armLen * 0.62
+  const clusterY = -(halfWidth + handLen * 1.1)
+  ctx.strokeStyle = "rgba(90, 240, 255, 0.4)"
+  ctx.lineWidth = 1.6
+  polyline(ctx, [
+    { x: clusterX, y: -halfWidth * 0.9 },
+    { x: clusterX, y: clusterY + handLen * 0.5 },
+  ])
+  ctx.fillStyle = "rgba(150, 255, 250, 0.9)"
+  ctx.beginPath()
+  ctx.arc(clusterX, clusterY + handLen * 0.5, 3, 0, Math.PI * 2)
+  ctx.fill()
+  hexCluster(ctx, clusterX, clusterY, 9, handLen * 1.05, handLen * 0.3, 3.7, now)
+  hexCluster(ctx, armLen * 0.06, halfWidth + handLen * 0.9, 5, handLen * 0.55, handLen * 0.2, 9.2, now)
+
+  const panelX = armLen * 0.52
+  const panelY = halfWidth + handLen * 0.55 + Math.sin(now * 1.1) * handLen * 0.08
+  ctx.strokeStyle = "rgba(90, 240, 255, 0.4)"
+  ctx.lineWidth = 1.6
+  polyline(ctx, [
+    { x: panelX + handLen * 0.2, y: halfWidth * 0.9 },
+    { x: panelX + handLen * 0.2, y: panelY },
+  ])
+  holoPanel(ctx, panelX, panelY, handLen * 1.6, handLen * 1.05, 4.2, now)
+
+  ctx.fillStyle = "rgba(120, 220, 255, 0.65)"
+  for (let i = 0; i < 10; i++) {
+    const t = now * (0.2 + 0.25 * hashN(i + 60.3)) + hashN(i + 61.7) * 9
+    const px = armLen * (0.05 + 0.9 * hashN(i + 62.1)) + Math.sin(t) * handLen * 0.35
+    const py = (hashN(i + 63.9) - 0.5) * handLen * 4.6 + Math.cos(t * 0.7) * handLen * 0.3
+    const size = 3 + 4 * hashN(i + 64.3)
+    ctx.beginPath()
+    for (let v = 0; v < 3; v++) {
+      const vertA = t * 0.8 + (v / 3) * Math.PI * 2
+      const vx = px + Math.cos(vertA) * size
+      const vy = py + Math.sin(vertA) * size
+      if (v === 0) ctx.moveTo(vx, vy)
+      else ctx.lineTo(vx, vy)
+    }
+    ctx.closePath()
+    ctx.fill()
   }
   ctx.restore()
 
@@ -455,15 +605,22 @@ export function drawNature(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: n
     }
   }
 
+  ctx.restore()
+
+  traceOrganic(ctx, handLen, armLen, now)
+  ctx.strokeStyle = "rgba(160, 255, 170, 0.7)"
+  ctx.lineWidth = 2.6
+  ctx.stroke()
+
   const galaxyX = armLen * 0.52
   ctx.shadowColor = "rgba(200, 170, 255, 0.9)"
-  for (let i = 0; i < 70; i++) {
-    const t = i / 70
+  for (let i = 0; i < 90; i++) {
+    const t = i / 90
     const armOffset = i % 2 === 0 ? 0 : Math.PI
     const spiral = t * 4.6 + armOffset + now * 0.22
-    const radius = handLen * 0.5 * Math.sqrt(t)
+    const radius = handLen * 0.95 * Math.sqrt(t)
     const px = galaxyX + Math.cos(spiral) * radius
-    const py = Math.sin(spiral) * radius * 0.55
+    const py = Math.sin(spiral) * radius * 0.62
     const twinkle = 0.6 + 0.4 * Math.sin(now * 2.1 + i * 1.7)
     ctx.fillStyle =
       i % 6 === 0
@@ -479,25 +636,76 @@ export function drawNature(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: n
   ctx.arc(galaxyX, 0, 3, 0, Math.PI * 2)
   ctx.fill()
   ctx.shadowBlur = 9
-  ctx.restore()
+  ctx.shadowColor = "rgba(90, 230, 130, 0.65)"
 
-  traceOrganic(ctx, handLen, armLen, now)
-  ctx.strokeStyle = "rgba(160, 255, 170, 0.7)"
-  ctx.lineWidth = 2.6
-  ctx.stroke()
+  ctx.fillStyle = "rgba(60, 170, 80, 0.55)"
+  ctx.strokeStyle = "rgba(170, 250, 170, 0.75)"
+  ctx.lineWidth = 2
+  for (let burst = 0; burst < 9; burst++) {
+    const side = burst % 2 === 0 ? -1 : 1
+    const bx = armLen * (0.05 + 0.11 * burst)
+    const baseY = side * halfWidth * (0.65 + 0.3 * hashN(burst * 5.1))
+    const fan = hashN(burst * 7.7) > 0.5 ? 3 : 2
+    for (let leaf = 0; leaf < fan; leaf++) {
+      const leafAngle =
+        side * (Math.PI / 2) + (leaf - (fan - 1) / 2) * 0.6 + Math.sin(now * 0.8 + burst + leaf) * 0.14
+      const size = handLen * (0.34 + 0.3 * hashN(burst * 13.3 + leaf * 3.7))
+      leafShape(ctx, { x: bx, y: baseY }, leafAngle, size)
+    }
+  }
 
-  ctx.fillStyle = "rgba(70, 190, 90, 0.45)"
-  ctx.strokeStyle = "rgba(160, 255, 170, 0.6)"
-  ctx.lineWidth = 1.6
-  for (let spike = 0; spike < 4; spike++) {
-    const sx = armLen * (0.16 + 0.24 * spike)
-    const side = spike % 2 === 0 ? -1 : 1
-    leafShape(
-      ctx,
-      { x: sx, y: side * halfWidth * 0.92 },
-      side * (Math.PI / 2) + Math.sin(now * 1.2 + spike) * 0.25,
-      handLen * 0.22,
-    )
+  for (let leaf = 0; leaf < 5; leaf++) {
+    const leafAngle = (leaf - 2) * 0.5 + Math.sin(now * 0.7 + leaf) * 0.1
+    leafShape(ctx, { x: armLen * 0.99, y: 0 }, leafAngle, handLen * (0.3 + 0.22 * hashN(leaf * 3.3 + 21)))
+  }
+
+  ctx.strokeStyle = "rgba(150, 220, 140, 0.85)"
+  for (let br = 0; br < 3; br++) {
+    const side = br % 2 === 0 ? 1 : -1
+    const sx = armLen * (0.22 + 0.3 * br)
+    const reach = handLen * (0.9 + 0.5 * hashN(br * 11.1))
+    const sway = Math.sin(now * 0.9 + br * 2.1) * 0.15
+    const branch: Pt[] = []
+    for (let k = 0; k <= 3; k++) {
+      const f = k / 3
+      branch.push({
+        x: sx + reach * f * (0.55 + sway * 0.3),
+        y: side * (halfWidth * 0.7 + reach * f * (0.8 + sway)),
+      })
+    }
+    ctx.lineWidth = 4.6 - br * 0.8
+    smoothLine(ctx, branch)
+    const tip = branch[3]
+    const tipAngle = Math.atan2(tip.y - branch[2].y, tip.x - branch[2].x)
+    for (let leaf = 0; leaf < 3; leaf++) {
+      leafShape(ctx, tip, tipAngle + (leaf - 1) * 0.7, handLen * (0.22 + 0.12 * hashN(br * 7 + leaf)))
+    }
+  }
+
+  const downLocal = { x: Math.sin(angle), y: Math.cos(angle) }
+  const downPerp = { x: -downLocal.y, y: downLocal.x }
+  ctx.strokeStyle = "rgba(150, 235, 150, 0.7)"
+  for (let strand = 0; strand < 4; strand++) {
+    const anchor: Pt = {
+      x: armLen * (0.15 + 0.22 * strand),
+      y: (downLocal.y >= 0 ? 1 : -1) * halfWidth * 0.8,
+    }
+    const len = handLen * (0.8 + 0.8 * hashN(strand * 9.1))
+    const pts: Pt[] = []
+    for (let k = 0; k <= 4; k++) {
+      const f = k / 4
+      const sway = Math.sin(now * 1.2 + strand * 1.9 + f * 2.2) * f * f * handLen * 0.22
+      pts.push(add(add(anchor, downLocal, len * f), downPerp, sway))
+    }
+    ctx.lineWidth = 2.2
+    smoothLine(ctx, pts)
+    const hang = Math.atan2(downLocal.y, downLocal.x)
+    leafShape(ctx, pts[4], hang + Math.sin(now * 1.2 + strand) * 0.3, handLen * 0.16)
+    ctx.fillStyle = "rgba(220, 160, 200, 0.7)"
+    ctx.beginPath()
+    ctx.arc(pts[2].x, pts[2].y, 3, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = "rgba(60, 170, 80, 0.55)"
   }
   ctx.restore()
 
@@ -544,12 +752,32 @@ export function drawNature(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: n
     leafShape(ctx, tip, tipAngle + Math.sin(now * 1.4) * 0.3, handLen * 0.18)
   }
 
+  ctx.strokeStyle = "rgba(170, 250, 170, 0.45)"
+  ctx.lineWidth = 1.4
+  for (let i = 0; i < 8; i++) {
+    const base = add(
+      add(wrist, dir, (0.05 + 0.95 * hashN(i + 70.3)) * armLen),
+      perp,
+      (hashN(i + 80.7) - 0.5) * handLen * 3.6,
+    )
+    const wobX = Math.sin(now * (0.5 + hashN(i + 5) * 0.6) + i * 2.7) * handLen * 0.2
+    const wobY = Math.cos(now * (0.4 + hashN(i + 8) * 0.5) + i * 1.9) * handLen * 0.16
+    const alpha = 0.25 + 0.45 * (0.5 + 0.5 * Math.sin(now * 1.6 + i * 2.1))
+    ctx.fillStyle = `rgba(120, 220, 110, ${alpha.toFixed(3)})`
+    leafShape(
+      ctx,
+      { x: base.x + wobX, y: base.y + wobY },
+      hashN(i + 90.1) * Math.PI * 2 + now * 0.5,
+      handLen * 0.14,
+    )
+  }
+
   ctx.shadowColor = "rgba(255, 215, 120, 0.9)"
   for (let i = 0; i < 12; i++) {
     const base = add(
       add(wrist, dir, (0.2 + 0.75 * hashN(i + 40.2)) * armLen),
       perp,
-      (hashN(i + 50.7) - 0.5) * handLen * 1.7,
+      (hashN(i + 50.7) - 0.5) * handLen * 2.6,
     )
     const wobX = Math.sin(now * (0.7 + hashN(i) * 0.8) + i * 2.1) * handLen * 0.14
     const wobY = Math.cos(now * (0.6 + hashN(i + 3) * 0.7) + i * 1.3) * handLen * 0.1
