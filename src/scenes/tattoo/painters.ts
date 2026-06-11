@@ -44,23 +44,6 @@ function armFrame(points: Pt[], forearm: Forearm): Frame | null {
   }
 }
 
-function bandPath(ctx: CanvasRenderingContext2D, frame: Frame): void {
-  const wristHalf = frame.handLen * 0.52
-  const elbowHalf = frame.handLen * 0.66
-  const start = add(frame.wrist, frame.dir, -frame.handLen * 0.08)
-  const end = add(frame.wrist, frame.dir, frame.armLen * 0.96)
-  const a = add(start, frame.perp, wristHalf)
-  const b = add(end, frame.perp, elbowHalf)
-  const c = add(end, frame.perp, -elbowHalf)
-  const d = add(start, frame.perp, -wristHalf)
-  ctx.beginPath()
-  ctx.moveTo(a.x, a.y)
-  ctx.lineTo(b.x, b.y)
-  ctx.lineTo(c.x, c.y)
-  ctx.lineTo(d.x, d.y)
-  ctx.closePath()
-}
-
 function palmPath(ctx: CanvasRenderingContext2D, points: Pt[]): void {
   ctx.beginPath()
   const first = points[PALM_RING[0]]
@@ -104,6 +87,54 @@ function smoothLine(ctx: CanvasRenderingContext2D, pts: Pt[]): void {
   ctx.stroke()
 }
 
+function hexPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number): void {
+  for (let v = 0; v <= 6; v++) {
+    const a = (v / 6) * Math.PI * 2 + Math.PI / 6
+    const px = cx + Math.cos(a) * radius
+    const py = cy + Math.sin(a) * radius
+    if (v === 0) ctx.moveTo(px, py)
+    else ctx.lineTo(px, py)
+  }
+}
+
+function chamferPlate(x0: number, x1: number, w0: number, w1: number, c: number): Pt[] {
+  return [
+    { x: x0 + c, y: -w0 },
+    { x: x1 - c, y: -w1 },
+    { x: x1, y: -w1 + c },
+    { x: x1, y: w1 - c },
+    { x: x1 - c, y: w1 },
+    { x: x0 + c, y: w0 },
+    { x: x0, y: w0 - c },
+    { x: x0, y: -w0 + c },
+  ]
+}
+
+function buildPlates(handLen: number, armLen: number): Pt[][] {
+  const bounds = [-0.08, 0.2, 0.46, 0.72, 0.96]
+  const plates: Pt[][] = []
+  for (let s = 0; s < bounds.length - 1; s++) {
+    const x0 = bounds[s] * armLen + (s === 0 ? 0 : 4)
+    const x1 = bounds[s + 1] * armLen - 4
+    const taper0 = 0.5 + 0.16 * ((bounds[s] + 0.08) / 1.04)
+    const taper1 = 0.5 + 0.16 * ((bounds[s + 1] + 0.08) / 1.04)
+    const w0 = handLen * taper0 * (0.92 + 0.14 * hashN(s * 3.1))
+    const w1 = handLen * taper1 * (0.92 + 0.14 * hashN(s * 3.1 + 1))
+    const chamfer = Math.min(13, (x1 - x0) * 0.24)
+    plates.push(chamferPlate(x0, x1, w0, w1, chamfer))
+  }
+  return plates
+}
+
+function tracePlates(ctx: CanvasRenderingContext2D, plates: Pt[][]): void {
+  ctx.beginPath()
+  for (const plate of plates) {
+    ctx.moveTo(plate[0].x, plate[0].y)
+    for (let i = 1; i < plate.length; i++) ctx.lineTo(plate[i].x, plate[i].y)
+    ctx.closePath()
+  }
+}
+
 export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: number): void {
   const frame = armFrame(points, forearm)
   if (!frame) return
@@ -116,22 +147,22 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
   ctx.shadowColor = "rgba(0, 230, 255, 0.7)"
   ctx.shadowBlur = 9
 
-  bandPath(ctx, frame)
-  ctx.fillStyle = "rgba(0, 26, 36, 0.5)"
-  ctx.fill()
-  ctx.strokeStyle = "rgba(110, 250, 255, 0.85)"
-  ctx.lineWidth = 3
-  ctx.stroke()
-
   ctx.save()
-  bandPath(ctx, frame)
-  ctx.clip()
   ctx.translate(wrist.x, wrist.y)
   ctx.rotate(angle)
 
+  const plates = buildPlates(handLen, armLen)
+  tracePlates(ctx, plates)
+  ctx.fillStyle = "rgba(0, 26, 36, 0.46)"
+  ctx.fill()
+
+  ctx.save()
+  tracePlates(ctx, plates)
+  ctx.clip()
+
   ctx.strokeStyle = "rgba(0, 245, 235, 0.7)"
   ctx.fillStyle = "rgba(0, 245, 235, 0.7)"
-  ctx.lineWidth = 3.2
+  ctx.lineWidth = 3
   const rails = [-0.62, -0.3, 0, 0.32, 0.6]
   const railPaths: Pt[][] = []
   for (let r = 0; r < rails.length; r++) {
@@ -152,22 +183,21 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
     for (let k = 1; k < rail.length - 1; k++) {
       if (hashN(r * 31 + k * 13) > 0.5) {
         ctx.beginPath()
-        ctx.arc(rail[k].x, rail[k].y, 4.5, 0, Math.PI * 2)
+        ctx.arc(rail[k].x, rail[k].y, 4, 0, Math.PI * 2)
         ctx.fill()
       } else {
-        ctx.fillRect(rail[k].x - 4, rail[k].y - 4, 8, 8)
+        ctx.fillRect(rail[k].x - 3.5, rail[k].y - 3.5, 7, 7)
       }
     }
   }
 
-  ctx.lineWidth = 2
-  ctx.strokeStyle = "rgba(110, 250, 255, 0.45)"
-  for (let plate = 1; plate <= 5; plate++) {
-    const x = (plate / 6) * armLen
+  ctx.lineWidth = 1.6
+  ctx.strokeStyle = "rgba(110, 250, 255, 0.35)"
+  for (let cut = 0; cut < 3; cut++) {
+    const cutX = armLen * (0.18 + 0.3 * cut)
     polyline(ctx, [
-      { x: x + handLen * 0.16, y: -halfWidth },
-      { x: x - handLen * 0.12, y: 0 },
-      { x: x + handLen * 0.16, y: halfWidth },
+      { x: cutX - halfWidth * 0.5, y: -halfWidth },
+      { x: cutX + halfWidth * 0.5, y: halfWidth },
     ])
   }
 
@@ -175,19 +205,23 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
   ctx.lineWidth = 3
   ctx.strokeStyle = "rgba(150, 255, 250, 0.9)"
   ctx.beginPath()
-  ctx.arc(cpuX, 0, handLen * 0.42, 0, Math.PI * 2)
+  ctx.arc(cpuX, 0, handLen * 0.4, 0, Math.PI * 2)
   ctx.stroke()
   ctx.beginPath()
-  ctx.arc(cpuX, 0, handLen * 0.24, 0, Math.PI * 2)
+  hexPath(ctx, cpuX, 0, handLen * 0.26)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(cpuX, 0, handLen * 0.12, 0, Math.PI * 2)
   ctx.stroke()
   polyline(ctx, [
-    { x: cpuX - handLen * 0.42, y: 0 },
-    { x: cpuX + handLen * 0.42, y: 0 },
+    { x: cpuX - handLen * 0.4, y: 0 },
+    { x: cpuX + handLen * 0.4, y: 0 },
   ])
   polyline(ctx, [
-    { x: cpuX, y: -handLen * 0.42 },
-    { x: cpuX, y: handLen * 0.42 },
+    { x: cpuX, y: -handLen * 0.4 },
+    { x: cpuX, y: handLen * 0.4 },
   ])
+  ctx.fillStyle = "rgba(150, 255, 250, 0.9)"
   for (let o = 0; o < 6; o++) {
     const orbit = now * 0.9 + (o * Math.PI) / 3
     ctx.beginPath()
@@ -195,17 +229,13 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
     ctx.fill()
   }
 
+  ctx.lineWidth = 2
+  ctx.strokeStyle = "rgba(0, 245, 235, 0.7)"
   for (let h = 0; h < 7; h++) {
-    const hx = armLen * 0.78 + (h % 3) * handLen * 0.2
-    const hy = (Math.floor(h / 3) - 1) * handLen * 0.2
+    const hx = armLen * 0.78 + (h % 3) * handLen * 0.19
+    const hy = (Math.floor(h / 3) - 1) * handLen * 0.19
     ctx.beginPath()
-    for (let v = 0; v <= 6; v++) {
-      const a = (v / 6) * Math.PI * 2 + Math.PI / 6
-      const px = hx + Math.cos(a) * handLen * 0.09
-      const py = hy + Math.sin(a) * handLen * 0.09
-      if (v === 0) ctx.moveTo(px, py)
-      else ctx.lineTo(px, py)
-    }
+    hexPath(ctx, hx, hy, handLen * 0.085)
     ctx.stroke()
   }
 
@@ -235,6 +265,39 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
   }
   ctx.restore()
 
+  ctx.shadowColor = "rgba(0, 230, 255, 0.7)"
+  ctx.strokeStyle = "rgba(110, 250, 255, 0.85)"
+  ctx.fillStyle = "rgba(0, 245, 235, 0.7)"
+  ctx.lineWidth = 2.6
+  for (let p = 0; p < plates.length; p++) {
+    const plate = plates[p]
+    ctx.beginPath()
+    ctx.moveTo(plate[0].x, plate[0].y)
+    for (let i = 1; i < plate.length; i++) ctx.lineTo(plate[i].x, plate[i].y)
+    ctx.closePath()
+    ctx.stroke()
+    ctx.lineWidth = 1.4
+    ctx.beginPath()
+    hexPath(ctx, plate[0].x + 6, plate[0].y + 8, 3.4)
+    ctx.stroke()
+    ctx.beginPath()
+    hexPath(ctx, plate[4].x - 6, plate[4].y - 8, 3.4)
+    ctx.stroke()
+    ctx.lineWidth = 2.6
+    if (p < plates.length - 1) {
+      const gapX = plate[2].x + 4
+      const side = p % 2 === 0 ? 1 : -1
+      const wingY = side * (handLen * 0.56)
+      ctx.beginPath()
+      ctx.moveTo(gapX - 12, wingY)
+      ctx.lineTo(gapX + 12, wingY)
+      ctx.lineTo(gapX, wingY + side * 18)
+      ctx.closePath()
+      ctx.stroke()
+    }
+  }
+  ctx.restore()
+
   palmPath(ctx, points)
   ctx.fillStyle = "rgba(0, 26, 36, 0.42)"
   ctx.fill()
@@ -244,10 +307,13 @@ export function drawTech(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: num
 
   ctx.strokeStyle = "rgba(0, 245, 235, 0.75)"
   ctx.fillStyle = "rgba(0, 245, 235, 0.75)"
-  ctx.lineWidth = 3
+  ctx.lineWidth = 2.6
   const hub = palmCenter(points)
   ctx.beginPath()
-  ctx.arc(hub.x, hub.y, handLen * 0.16, 0, Math.PI * 2)
+  hexPath(ctx, hub.x, hub.y, handLen * 0.22)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(hub.x, hub.y, handLen * 0.11, 0, Math.PI * 2)
   ctx.stroke()
   for (const knuckle of KNUCKLES) {
     polyline(ctx, [hub, points[knuckle]])
@@ -292,30 +358,58 @@ function leafShape(ctx: CanvasRenderingContext2D, base: Pt, angle: number, size:
   ctx.stroke()
 }
 
+function traceOrganic(ctx: CanvasRenderingContext2D, handLen: number, armLen: number, now: number): void {
+  const w = handLen * 0.62
+  const steps = 7
+  ctx.beginPath()
+  let prev: Pt = { x: -handLen * 0.06, y: -w * 0.72 }
+  ctx.moveTo(prev.x, prev.y)
+  for (let k = 1; k <= steps; k++) {
+    const x = (k / steps) * armLen * 0.96
+    const y = -(w * (0.58 + 0.34 * hashN(k * 7.7)) + Math.sin(now * 0.9 + k * 1.3) * 3)
+    const ctrlX = (prev.x + x) / 2
+    const ctrlY = Math.min(prev.y, y) - w * 0.3
+    ctx.quadraticCurveTo(ctrlX, ctrlY, x, y)
+    prev = { x, y }
+  }
+  const elbowTip: Pt = { x: armLen * 1.02, y: 0 }
+  ctx.quadraticCurveTo(armLen * 1.0, -w * 0.3, elbowTip.x, elbowTip.y)
+  let prevBottom: Pt = elbowTip
+  for (let k = steps; k >= 1; k--) {
+    const x = (k / steps) * armLen * 0.96
+    const y = w * (0.58 + 0.34 * hashN(k * 4.3 + 9)) + Math.sin(now * 0.8 + k * 1.7) * 3
+    const ctrlX = (prevBottom.x + x) / 2
+    const ctrlY = Math.max(prevBottom.y, y) + w * 0.3
+    ctx.quadraticCurveTo(ctrlX, ctrlY, x, y)
+    prevBottom = { x, y }
+  }
+  ctx.quadraticCurveTo(-handLen * 0.1, w * 0.4, -handLen * 0.06, -w * 0.72)
+  ctx.closePath()
+}
+
 export function drawNature(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: number): void {
   const frame = armFrame(points, forearm)
   if (!frame) return
   const { wrist, handLen, armLen, dir, perp, angle } = frame
   const ctx = c2d.ctx
-  const halfWidth = handLen * 0.6
+  const halfWidth = handLen * 0.62
 
   ctx.save()
   ctx.lineJoin = "round"
   ctx.shadowColor = "rgba(90, 230, 130, 0.65)"
   ctx.shadowBlur = 9
 
-  bandPath(ctx, frame)
-  ctx.fillStyle = "rgba(8, 34, 16, 0.45)"
-  ctx.fill()
-  ctx.strokeStyle = "rgba(160, 255, 170, 0.7)"
-  ctx.lineWidth = 2.6
-  ctx.stroke()
-
   ctx.save()
-  bandPath(ctx, frame)
-  ctx.clip()
   ctx.translate(wrist.x, wrist.y)
   ctx.rotate(angle)
+
+  traceOrganic(ctx, handLen, armLen, now)
+  ctx.fillStyle = "rgba(8, 34, 16, 0.42)"
+  ctx.fill()
+
+  ctx.save()
+  traceOrganic(ctx, handLen, armLen, now)
+  ctx.clip()
 
   ctx.strokeStyle = "rgba(150, 235, 150, 0.7)"
   ctx.fillStyle = "rgba(70, 190, 90, 0.5)"
@@ -326,8 +420,7 @@ export function drawNature(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: n
     const x = (i / 14) * armLen * 0.95 + handLen * 0.1
     const y = side * halfWidth * (0.3 + 0.35 * hashN(i * 3.3))
     const sway = Math.sin(now * 0.9 + i * 1.4) * 0.18
-    const leafAngle = side * (1.1 + sway) + 0.25
-    leafShape(ctx, { x, y }, leafAngle, handLen * (0.32 + 0.18 * hashN(i * 7.7)))
+    leafShape(ctx, { x, y }, side * (1.1 + sway) + 0.25, handLen * (0.32 + 0.18 * hashN(i * 7.7)))
   }
 
   ctx.lineWidth = 4.2
@@ -385,6 +478,27 @@ export function drawNature(c2d: Canvas2d, points: Pt[], forearm: Forearm, now: n
   ctx.beginPath()
   ctx.arc(galaxyX, 0, 3, 0, Math.PI * 2)
   ctx.fill()
+  ctx.shadowBlur = 9
+  ctx.restore()
+
+  traceOrganic(ctx, handLen, armLen, now)
+  ctx.strokeStyle = "rgba(160, 255, 170, 0.7)"
+  ctx.lineWidth = 2.6
+  ctx.stroke()
+
+  ctx.fillStyle = "rgba(70, 190, 90, 0.45)"
+  ctx.strokeStyle = "rgba(160, 255, 170, 0.6)"
+  ctx.lineWidth = 1.6
+  for (let spike = 0; spike < 4; spike++) {
+    const sx = armLen * (0.16 + 0.24 * spike)
+    const side = spike % 2 === 0 ? -1 : 1
+    leafShape(
+      ctx,
+      { x: sx, y: side * halfWidth * 0.92 },
+      side * (Math.PI / 2) + Math.sin(now * 1.2 + spike) * 0.25,
+      handLen * 0.22,
+    )
+  }
   ctx.restore()
 
   palmPath(ctx, points)
