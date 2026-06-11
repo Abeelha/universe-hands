@@ -4,13 +4,11 @@ Hand-driven visual instruments on your live webcam. Pick a visual from the hub, 
 
 ## Demos
 
-EVENT HORIZON:
+Click to watch (with audio):
 
-https://github.com/Abeelha/universe-hands/raw/main/examples/blackhole.mp4
-
-LIVING INK:
-
-https://github.com/Abeelha/universe-hands/raw/main/examples/ink-tattoo.mp4
+| EVENT HORIZON | LIVING INK |
+|---|---|
+| [![EVENT HORIZON demo](examples/blackhole.jpg)](examples/blackhole.mp4) | [![LIVING INK demo](examples/ink-tattoo.jpg)](examples/ink-tattoo.mp4) |
 
 ## Visuals
 
